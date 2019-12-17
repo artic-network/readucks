@@ -17,10 +17,12 @@ not, see <http://www.gnu.org/licenses/>.
 import argparse
 import os
 import sys
+from datetime import datetime
 
 from Bio import SeqIO
 import parasail
 
+from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 from .misc import bold_underline, MyHelpFormatter
 from .version import __version__
 
@@ -35,10 +37,17 @@ native_barcodes = {
     }
 }
 
+adapters = {
+	'SQK-NSK007': {
+		'start': "AATGTACTTCGTTCAGTTACGTATTGCT",
+		'end': "GCAATACGTAACTGAACGAAGT"
+	}
+}
+
 
 def main():
     '''
-    Entry point for Chorepop. Gets arguments, processes them and then calls process_files function
+    Entry point for Readucks. Gets arguments, processes them and then calls process_files function
     to do the actual work.
     :return:
     '''
@@ -106,44 +115,62 @@ def process_read_file(read_file, verbosity, print_dest):
     output files as required.
     """
 
-    for read in SeqIO.parse(read_file, "fastq"):
-        process_read(read, print_dest)
+    start_time = datetime.now().microsecond
 
-def process_read(read, print_dest):
+    nuc_matrix = parasail.matrix_create("ACGT", 2, -1)
+
+    for read in SeqIO.parse(read_file, "fastq"):
+
+        process_read(read, NATIVE_BARCODES, 3, 1, nuc_matrix, print_dest)
+
+    print("Time taken: " + str((datetime.now().microsecond - start_time) / 1000) + "secs")
+
+
+def process_read(read, barcodes, open, extend, matrix, print_dest):
     '''
     Processes a read to find barcodes and returns the results
     :param name: The name of the read
     :param read:  The sequence
     '''
 
-    nuc_matrix = parasail.matrix_create("ACGT", 2, -1)
+    call_barcode(read, barcodes, open, extend, matrix)
 
-    call_barcode(read, native_barcodes, 10, 0, nuc_matrix)
 
 def call_barcode(read, barcodes, open, extend, matrix):
 
-    name = read.id
+    query_start = str(read.seq)[:100]
+    query_end = str(read.seq)[-100:]
 
-    query_start = str(read.seq)
-    query_end = str(read.seq)
+    start_results = []
+    end_results = []
 
     for barcode_id in barcodes:
-        # result_start = align_barcode(query_start, barcodes[barcode_id]['start'], open, extend, matrix)
-        # result_end = align_barcode(query_end, barcodes[barcode_id]['end'], open, extend, matrix)
-        #
-        # print(name, result_start['identity'], result_end['identity'])
-        # print(result_start['ref'] + " .... " + result_end['ref'] + "\n" +
-        #       result_start['comp'] + " .... " + result_end['comp'] + "\n" +
-        #       result_start['query'] + " .... " + result_end['ref'] + "\n")
+        result_start = align_barcode(barcode_id, query_start, barcodes[barcode_id]['start'], open, extend, matrix)
+        result_end = align_barcode(barcode_id, query_end, barcodes[barcode_id]['end'], open, extend, matrix)
 
-        result_all = align_barcode(str(read.seq), barcodes[barcode_id]['start'] + "---" + barcodes[barcode_id]['end'], open, extend, matrix)
+        start_results.append(result_start)
+        end_results.append(result_end)
 
-        print(name, result_all['identity'], result_all['cigar'])
-        print(result_all['ref'] + "\n" +
-              result_all['comp'] + "\n" +
-              result_all['query'] + "\n")
+        # print_alignment(read.name, result_start)
+        # print_alignment(read.name, result_end)
 
-def align_barcode(query, reference, open, extend, matrix):
+    start_results.sort(key=lambda k: -k['identity'])
+    end_results.sort(key=lambda k: -k['identity'])
+
+    print(read.name, start_results[0]['barcode'], start_results[0]['identity'], end_results[0]['barcode'], end_results[0]['identity'])
+
+
+
+def print_alignment(name, result):
+    print(name, result['identity'], result['identity'])
+    print(result['ref'] + " .... " + result['ref'] + "\n" +
+          result['comp'] + " .... " + result['comp'] + "\n" +
+          result['query'] + " .... " + result['ref'] + "\n")
+
+
+
+
+def align_barcode(barcode_id, query, reference, open, extend, matrix):
 
     result = parasail.sw_trace_striped_8(query, reference, open, extend, matrix)
     traceback = result.get_traceback('|', '.', ' ')
@@ -152,6 +179,7 @@ def align_barcode(query, reference, open, extend, matrix):
     result = parasail.sw_stats_striped_8(query, reference, open, extend, matrix)
 
     return {
+        "barcode": barcode_id,
         "matches": result.matches,
         "length": result.len_ref,
         "score": result.score,
