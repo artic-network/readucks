@@ -322,3 +322,28 @@ class MyHelpFormatter(argparse.HelpFormatter):
                 action.default is not None:
             help_text += ' (default: ' + str(action.default) + ')'
         return help_text
+
+def int_to_str(num, max_num=0):
+    """
+    Converts a number to a string. Will add left padding based on the max value to ensure numbers
+    align well.
+    """
+    if num is None:
+        num_str = 'n/a'
+    else:
+        num_str = '{:,}'.format(num)
+    max_str = '{:,}'.format(int(max_num))
+    return num_str.rjust(len(max_str))
+
+def output_progress_line(completed, total, end_newline=False, step=10):
+    if step > 1 and completed % step != 0 and completed != total:
+        return
+    progress_str = int_to_str(completed) + ' / ' + int_to_str(total)
+    if total > 0:
+        percent = 100.0 * completed / total
+    else:
+        percent = 0.0
+    progress_str += ' (' + '%.1f' % percent + '%)'
+
+    end_char = '\n' if end_newline else ''
+    print('\r' + progress_str, end=end_char, flush=True)

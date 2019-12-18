@@ -17,33 +17,16 @@ not, see <http://www.gnu.org/licenses/>.
 import argparse
 import os
 import sys
+from collections import defaultdict
 from datetime import datetime
 
 from Bio import SeqIO
 import parasail
 
+from .demuxer import demux_read, print_alignment
 from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
-from .misc import bold_underline, MyHelpFormatter
+from .misc import bold_underline, MyHelpFormatter, output_progress_line
 from .version import __version__
-
-read = "CAGTGTACTTCGTTCGGTACGTATTGCTAAGGTTAAAGGTTGCACAAACCCTGGACAAGCAACACCTACACAATGAATACAAAGTTTGATTCTTGAATTCAATAGCTCTCTTGCTATCTAACTAGATGGAATACTTCATATTGGGCTAACTCTTATATGCTGACTCAATAGTTAACTTGACATCTCTGCCTTCATAATCAGATATATAAGCATAATAAATAAATACTCATATTTCTTGATAATTTGTTTAACCACAGATAAATCCTCACTGTAAGCCAGGCTTTCAAGTTGACACCCTTACAAAAACCAGGACTCAGAATCCCTCAAATAAGAGATTCCAAGACAACATCCTTAAATTGCTTTATTATATTAATAAGCATTTTATCACTAGAAATCAATGAAATGGTTAATTGTAACTAAACCCGCAGGTCACGTGTGTTAGGTTTCCAGGTGCTAGCGTCAGGGTTTGTAACCTTTCCAACCTTAACCAATACGTGGC"
-
-native_barcodes = {
-    'NB05': {
-        'start': "AAGGTTACACAAACCCTGGACAAG",
-        'start_r': "GAACAGGTCCCAAACACATTGGAA", # reversed
-        'end': "CTTGTCCAGGGTTTGTGTAACCTT",
-        'end_r': "TTCCAATGTGTTTGGGACCTGTTC" # reversed
-    }
-}
-
-adapters = {
-	'SQK-NSK007': {
-		'start': "AATGTACTTCGTTCAGTTACGTATTGCT",
-		'end': "GCAATACGTAACTGAACGAAGT"
-	}
-}
-
 
 def main():
     '''
@@ -53,10 +36,19 @@ def main():
     '''
     args = get_arguments()
 
-    process_files(args.input_path, args.output, args.verbosity, args.print_dest)
+    barcode_set = 'native'
+    if args.native_barcodes:
+        barcode_set = 'native'
+    if args.pcr_barcodes:
+        barcode_set = 'pcr'
+    if args.rapid_barcodes:
+        barcode_set = 'rapid'
 
 
-def process_files(input_path, output_path, verbosity, print_dest):
+    process_files(args.input_path, args.output, barcode_set, args.limit_barcodes_to, args.single, args.threshold / 100.0, args.secondary_threshold / 100.0, args.verbosity)
+
+
+def process_files(input_path, output_path, barcode_set, limit_barcodes_to, single_barcode, threshold, secondary_threshold, verbosity):
     """
     Core function to process one or more input files and create the required output files.
 
@@ -64,23 +56,69 @@ def process_files(input_path, output_path, verbosity, print_dest):
     output files as required.
     """
 
-    read_files = get_input_files(input_path, verbosity, print_dest)
+    start_time = datetime.now()
+
+    read_files = get_input_files(input_path)
+
+    output_file = open(output_path, 'wt')
 
     if verbosity > 0:
-        print(bold_underline('\nRead files found:'), flush=True, file=print_dest)
-        for read_file in read_files:
-            print(read_file, flush=True, file=print_dest)
+        print(bold_underline('\n' + str(len(read_files)) + ' read files found'), flush=True)
 
-    for read_file in read_files:
-        process_read_file(read_file, verbosity, print_dest)
+    if verbosity > 1:
+        print(bold_underline('\nRead files found:'), flush=True)
+        for read_file in read_files:
+            print(read_file, flush=True)
+
+    output_progress_line(0, len(read_files))
+
+    barcode_counts = defaultdict(int)
+
+    if barcode_set == 'native':
+        barcodes = NATIVE_BARCODES
+    elif barcode_set == 'pcr':
+        barcodes = PCR_BARCODES
+    elif barcode_set == 'rapid':
+        barcodes = RAPID_BARCODES
+    else:
+        sys.exit(
+            'Unrecognised barcode_set: ' + barcode_set)
+
+    #todo - limit set of barcodes
+
+    print('name', 'barcode',
+          'primary_barcode', 'primary_is_start', 'primary_score', 'primary_identity', 'primary_matches', 'primary_length',
+          'secondary_barcode', 'secondary_is_start', 'secondary_score', 'secondary_identity', 'secondary_matches', 'secondary_length',
+          file = output_file, sep = '\t')
+    
+    for index, read_file in enumerate(read_files):
+        process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity)
+
+        output_progress_line(index, len(read_files))
+
+    output_progress_line(len(read_files), len(read_files))
+
+    output_file.close()
+
+    time = datetime.now() - start_time
 
     if verbosity > 0:
-        print(bold_underline('\nRead files found:'), flush=True, file=print_dest)
-        for read_file in read_files:
-            print(read_file, flush=True, file=print_dest)
+        print("\n\nTime taken: " + str(time.total_seconds()) + " secs")
+
+    if verbosity > 0:
+        print(bold_underline('\nBarcodes called:'), flush=True)
+        barcode_names = []
+        for barcode_id in barcode_counts:
+            barcode_names.append(barcode_id)
+
+        barcode_names.sort()
+
+        for barcode_name in barcode_names:
+            print(barcode_name + ": " + str(barcode_counts[barcode_name]), flush=True)
 
 
-def get_input_files(input_path, verbosity, print_dest):
+
+def get_input_files(input_path):
     '''
     Takes a path to a single file or a directory and returns a list of file paths to be processed.
     :param input_file_or_directory: The input path
@@ -109,88 +147,27 @@ def get_input_files(input_path, verbosity, print_dest):
     return input_files
 
 
-def process_read_file(read_file, verbosity, print_dest):
+def process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity):
     """
     Iterates through the reads in an input files and bins or filters them into the
     output files as required.
     """
 
-    start_time = datetime.now().microsecond
-
     nuc_matrix = parasail.matrix_create("ACGT", 2, -1)
 
     for read in SeqIO.parse(read_file, "fastq"):
 
-        process_read(read, NATIVE_BARCODES, 3, 1, nuc_matrix, print_dest)
+        result = demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, 3, 1, nuc_matrix, verbosity > 1)
 
-    print("Time taken: " + str((datetime.now().microsecond - start_time) / 1000) + "secs")
+        barcode_counts[result['call']] += 1
 
+        print(result['name'], result['call'],
+              result['primary']['id'], result['primary']['start'], result['primary']['score'], result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
+              result['secondary']['id'], result['primary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
+              file = output_file, sep = '\t')
 
-def process_read(read, barcodes, open, extend, matrix, print_dest):
-    '''
-    Processes a read to find barcodes and returns the results
-    :param name: The name of the read
-    :param read:  The sequence
-    '''
-
-    call_barcode(read, barcodes, open, extend, matrix)
-
-
-def call_barcode(read, barcodes, open, extend, matrix):
-
-    query_start = str(read.seq)[:100]
-    query_end = str(read.seq)[-100:]
-
-    start_results = []
-    end_results = []
-
-    for barcode_id in barcodes:
-        result_start = align_barcode(barcode_id, query_start, barcodes[barcode_id]['start'], open, extend, matrix)
-        result_end = align_barcode(barcode_id, query_end, barcodes[barcode_id]['end'], open, extend, matrix)
-
-        start_results.append(result_start)
-        end_results.append(result_end)
-
-        # print_alignment(read.name, result_start)
-        # print_alignment(read.name, result_end)
-
-    start_results.sort(key=lambda k: -k['identity'])
-    end_results.sort(key=lambda k: -k['identity'])
-
-    print(read.name, start_results[0]['barcode'], start_results[0]['identity'], end_results[0]['barcode'], end_results[0]['identity'])
-
-
-
-def print_alignment(name, result):
-    print(name, result['identity'], result['identity'])
-    print(result['ref'] + " .... " + result['ref'] + "\n" +
-          result['comp'] + " .... " + result['comp'] + "\n" +
-          result['query'] + " .... " + result['ref'] + "\n")
-
-
-
-
-def align_barcode(barcode_id, query, reference, open, extend, matrix):
-
-    result = parasail.sw_trace_striped_8(query, reference, open, extend, matrix)
-    traceback = result.get_traceback('|', '.', ' ')
-    cigar = result.get_cigar().decode
-
-    result = parasail.sw_stats_striped_8(query, reference, open, extend, matrix)
-
-    return {
-        "barcode": barcode_id,
-        "matches": result.matches,
-        "length": result.len_ref,
-        "score": result.score,
-        "identity": result.matches / result.len_ref,
-        "cigar": cigar,
-        "ref": traceback.ref,
-        "comp": traceback.comp,
-        "query": traceback.query
-    }
-
-
+        if verbosity > 1:
+            print_alignment(result)
 
 
 def get_arguments():
@@ -209,6 +186,24 @@ def get_arguments():
     main_group.add_argument('-v', '--verbosity', type=int, default=1,
                             help='Level of output information: 0 = none, 1 = some, 2 = lots')
 
+    barcode_group = parser.add_argument_group('Demuxing options')
+    barcode_group.add_argument('--single', action='store_true',
+                               help='Only attempts to match a single barcode at one end (default double)')
+    barcode_group.add_argument('--native_barcodes', action='store_true',
+                               help='Only attempts to match the 24 native barcodes (default)')
+    barcode_group.add_argument('--pcr_barcodes', action='store_true',
+                               help='Only attempts to match the 96 PCR barcodes')
+    barcode_group.add_argument('--rapid_barcodes', action='store_true',
+                               help='Only attempts to match the 12 rapid barcodes')
+    barcode_group.add_argument('--limit_barcodes_to', nargs='+', type=int, required=False,
+                               help='Specify a list of barcodes to look for (numbers refer to native, PCR or rapid)')
+    # barcode_group.add_argument('--custom_barcodes',
+    #                            help='CSV file containing custom barcode sequences')
+    barcode_group.add_argument('--threshold', type=float, default=90.0,
+                               help='A read must have at least this percent identity to a barcode')
+    barcode_group.add_argument('--secondary_threshold', type=float, default=70.0,
+                               help='The second barcode must have at least this percent identity (and match the first one)')
+
     help_args = parser.add_argument_group('Help')
     help_args.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
                            help='Show this help message and exit')
@@ -217,11 +212,18 @@ def get_arguments():
 
     args = parser.parse_args()
 
-    if args.output is None:
-        # output is to stdout so print messages to stderr
-        args.print_dest = sys.stderr
-    else:
-        args.print_dest = sys.stdout
+    if (args.native_barcodes and args.pcr_barcodes) or (args.native_barcodes and args.rapid_barcodes) or (args.pcr_barcodes and args.rapid_barcodes):
+        sys.exit(
+            'Error: only one of the following options may be used: --native_barcodes, --pcr_barcodes or --rapid_barcodes')
+
+    if (args.single and args.secondary_threshold):
+        sys.exit(
+            'Error: the option --secondary_threshold is not available with --single')
+
+    if (args.threshold > 0.0 and args.threshold < 1.0 or
+            args.secondary_threshold > 0.0 and args.secondary_threshold < 1.0):
+        sys.exit(
+            'Error: the options --threshold and --secondary_threshold should be given as percentages')
 
     return args
 
