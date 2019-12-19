@@ -23,7 +23,7 @@ from datetime import datetime
 from Bio import SeqIO
 import parasail
 
-from .demuxer import demux_read, print_alignment
+from .demuxer import demux_read, print_result
 from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 from .misc import bold_underline, MyHelpFormatter, output_progress_line
 from .version import __version__
@@ -167,7 +167,7 @@ def process_read_file(read_file, output_file, barcodes, single_barcode, threshol
               file = output_file, sep = '\t')
 
         if verbosity > 1:
-            print_alignment(result)
+            print_result(result)
 
 
 def get_arguments():
