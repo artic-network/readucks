@@ -163,7 +163,7 @@ def process_read_file(read_file, output_file, barcodes, single_barcode, threshol
 
         print(result['name'], result['call'],
               result['primary']['id'], result['primary']['start'], result['primary']['score'], result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
-              result['secondary']['id'], result['primary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
+              result['secondary']['id'], result['secondary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
               file = output_file, sep = '\t')
 
         if verbosity > 1:
