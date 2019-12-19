@@ -157,7 +157,7 @@ def process_read_file(read_file, output_file, barcodes, single_barcode, threshol
 
     for read in SeqIO.parse(read_file, "fastq"):
 
-        result = demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, 3, 1, nuc_matrix, verbosity > 1)
+        result = demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, 10, 1, nuc_matrix, verbosity > 1)
 
         barcode_counts[result['call']] += 1
 
