@@ -19,6 +19,8 @@ import os
 import sys
 from collections import defaultdict
 from datetime import datetime
+from multiprocessing import Pool as ThreadPool
+from functools import partial
 
 from Bio import SeqIO
 import parasail
@@ -45,10 +47,10 @@ def main():
         barcode_set = 'rapid'
 
 
-    process_files(args.input_path, args.output, barcode_set, args.limit_barcodes_to, args.single, args.threshold / 100.0, args.secondary_threshold / 100.0, args.verbosity)
+    process_files(args.input_path, args.output, barcode_set, args.limit_barcodes_to, args.single, args.threshold / 100.0, args.secondary_threshold / 100.0, args.verbosity, args.threads)
 
 
-def process_files(input_path, output_path, barcode_set, limit_barcodes_to, single_barcode, threshold, secondary_threshold, verbosity):
+def process_files(input_path, output_path, barcode_set, limit_barcodes_to, single_barcode, threshold, secondary_threshold, verbosity, threads):
     """
     Core function to process one or more input files and create the required output files.
 
@@ -92,7 +94,7 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, singl
           file = output_file, sep = '\t')
     
     for index, read_file in enumerate(read_files):
-        process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity)
+        process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity, threads)
 
         output_progress_line(index, len(read_files))
 
@@ -147,17 +149,30 @@ def get_input_files(input_path):
     return input_files
 
 
-def process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity):
+def process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity, threads = 1):
     """
     Iterates through the reads in an input files and bins or filters them into the
     output files as required.
     """
 
-    nuc_matrix = parasail.matrix_create("ACGT", 2, -1)
+    demux_func = partial(demux_read, barcodes = barcodes, single_barcode = single_barcode, threshold = threshold, secondary_threshold = secondary_threshold)
 
+    reads = []
     for read in SeqIO.parse(read_file, "fastq"):
+        reads.append(read)
 
-        result = demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, 10, 1, nuc_matrix, verbosity > 1)
+    results = []
+
+    if threads < 2:
+        for read in reads:
+            results.append(demux_func(read))
+
+    else:
+
+        with ThreadPool(threads) as pool:
+            results = pool.map(demux_func, reads)
+
+    for result in results:
 
         barcode_counts[result['call']] += 1
 
@@ -168,7 +183,6 @@ def process_read_file(read_file, output_file, barcodes, single_barcode, threshol
 
         if verbosity > 1:
             print_result(result)
-
 
 def get_arguments():
     '''
@@ -183,6 +197,8 @@ def get_arguments():
                                  'recursively searched for FASTQ files (required).')
     main_group.add_argument('-o', '--output', required=True,
                             help='Output filename (or filename prefix)')
+    main_group.add_argument('-t', '--threads', type=int, default=2,
+                               help='The number of threads to use (1 to turn off multithreading)')
     main_group.add_argument('-v', '--verbosity', type=int, default=1,
                             help='Level of output information: 0 = none, 1 = some, 2 = lots')
 

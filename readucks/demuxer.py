@@ -20,8 +20,11 @@ from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 
 DEBUG = False
 
+NUC_MATRIX = parasail.matrix_create("ACGT", 2, -1)
+GAP_OPEN = 10
+GAP_EXTEND = 1
 
-def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, open, extend, matrix, store_alignments):
+def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
     '''
     Processes a read to find barcodes and returns the results
     :param name: The name of the read
@@ -35,8 +38,8 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, o
     end_results = []
 
     for barcode_id in barcodes:
-        result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], open, extend, matrix)
-        result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], open, extend, matrix)
+        result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+        result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
 
         # if DEBUG:
         #     result_start = get_all(barcode_id, query_start, barcodes[barcode_id]['start'], open, extend, matrix)
@@ -55,8 +58,8 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, o
         #     print_alignment(start, end)
         # print("\n\n")
 
-    start_best = get_all(start_results[0]['id'], query_start, barcodes[start_results[0]['id']]['start'], open, extend, matrix)
-    end_best = get_all(end_results[0]['id'], query_end, barcodes[end_results[0]['id']]['end'], open, extend, matrix)
+    start_best = get_all(start_results[0]['id'], query_start, barcodes[start_results[0]['id']]['start'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+    end_best = get_all(end_results[0]['id'], query_end, barcodes[end_results[0]['id']]['end'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
 
     # start_2nd_best = get_all(start_results[1]['id'], query_start, barcodes[start_results[1]['id']]['start'], open, extend, matrix)
     # end_2nd_best = get_all(end_results[1]['id'], query_end, barcodes[end_results[1]['id']]['end'], open, extend, matrix)
@@ -67,14 +70,14 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, o
         # print_alignment(start_2nd_best, end_2nd_best)
 
         start_barcode, _ = native_barcode_adapter(start_results[0]['id'])
-        sb1 = get_all(start_results[0]['id'], query_start, start_barcode, open, extend, matrix)
+        sb1 = get_all(start_results[0]['id'], query_start, start_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
         _, end_barcode = native_barcode_adapter(end_results[0]['id'])
-        eb1 = get_all(end_results[0]['id'], query_end, end_barcode, open, extend, matrix)
+        eb1 = get_all(end_results[0]['id'], query_end, end_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
 
         start_barcode, _ = native_barcode_adapter(start_results[1]['id'])
-        sb2 = get_all(start_results[1]['id'], query_start, start_barcode, open, extend, matrix)
+        sb2 = get_all(start_results[1]['id'], query_start, start_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
         _, end_barcode = native_barcode_adapter(end_results[1]['id'])
-        eb2 = get_all(end_results[1]['id'], query_end, end_barcode, open, extend, matrix)
+        eb2 = get_all(end_results[1]['id'], query_end, end_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
         print_alignment(sb1, eb1)
         print_alignment(sb2, eb2)
 
