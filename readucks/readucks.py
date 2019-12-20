@@ -157,17 +157,16 @@ def process_read_file(read_file, output_file, barcodes, single_barcode, threshol
 
     demux_func = partial(demux_read, barcodes = barcodes, single_barcode = single_barcode, threshold = threshold, secondary_threshold = secondary_threshold)
 
-    reads = []
-    for read in SeqIO.parse(read_file, "fastq"):
-        reads.append(read)
-
     results = []
 
-    if threads < 2:
-        for read in reads:
+    if threads < 2: # if single threading then process as they are read (minimize memory requirements)
+        for read in SeqIO.parse(read_file, "fastq"):
             results.append(demux_func(read))
 
     else:
+        reads = []
+        for read in SeqIO.parse(read_file, "fastq"):
+            reads.append(read)
 
         with ThreadPool(threads) as pool:
             results = pool.map(demux_func, reads)
