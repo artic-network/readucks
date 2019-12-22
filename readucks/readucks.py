@@ -25,10 +25,11 @@ from functools import partial
 from Bio import SeqIO
 import parasail
 
-from .demuxer import demux_read, print_result
+from .demuxer import set_alignment_settings, demux_read, print_result
 from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 from .misc import bold_underline, MyHelpFormatter, output_progress_line
 from .version import __version__
+
 
 def main():
     '''
@@ -46,11 +47,22 @@ def main():
     if args.rapid_barcodes:
         barcode_set = 'rapid'
 
+    settings = {
+        'single_barcode': args.single,
+        'threshold': args.threshold / 100.0,
+        'secondary_threshold': args.secondary_threshold / 100.0
+    }
 
-    process_files(args.input_path, args.output, barcode_set, args.limit_barcodes_to, args.single, args.threshold / 100.0, args.secondary_threshold / 100.0, args.verbosity, args.threads)
+    # set_alignment_settings( 10,
+    #                         1,
+    #                         parasail.matrix_create("ACGT", 3, -2))
+    set_alignment_settings( -args.scoring_scheme_vals[2],
+                            -args.scoring_scheme_vals[3],
+                            parasail.matrix_create("ACGT", args.scoring_scheme_vals[0], args.scoring_scheme_vals[1]))
 
+    process_files(args.input_path, args.output, barcode_set, args.limit_barcodes_to, settings, args.verbosity, args.threads)
 
-def process_files(input_path, output_path, barcode_set, limit_barcodes_to, single_barcode, threshold, secondary_threshold, verbosity, threads):
+def process_files(input_path, output_path, barcode_set, limit_barcodes_to, settings, verbosity, threads):
     """
     Core function to process one or more input files and create the required output files.
 
@@ -65,14 +77,11 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, singl
     output_file = open(output_path, 'wt')
 
     if verbosity > 0:
-        print(bold_underline('\n' + str(len(read_files)) + ' read files found'), flush=True)
+        print(bold_underline('\n' + str(len(read_files)) + " read {} found".format('files' if len(read_files) > 1 else 'file')), flush=True)
 
     if verbosity > 1:
-        print(bold_underline('\nRead files found:'), flush=True)
         for read_file in read_files:
             print(read_file, flush=True)
-
-    output_progress_line(0, len(read_files))
 
     barcode_counts = defaultdict(int)
 
@@ -86,19 +95,37 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, singl
         sys.exit(
             'Unrecognised barcode_set: ' + barcode_set)
 
-    #todo - limit set of barcodes
+    barcode_list = {}
+    if limit_barcodes_to:
+        for index, barcode in enumerate(barcodes):
+            if (index + 1) in limit_barcodes_to:
+                barcode_list[barcode] = barcodes[barcode]
+
+    if verbosity > 0:
+        print(bold_underline('\nBarcode set: ' + barcode_set), flush=True)
+        if limit_barcodes_to:
+            print('limited to: ', end =' ')
+            for barcode in barcode_list:
+                print(barcode, end = ' ')
+            print()
+
+    if verbosity > 0:
+        print(bold_underline("\nProcessing files"), flush=True)
+        output_progress_line(0, len(read_files))
 
     print('name', 'barcode',
           'primary_barcode', 'primary_is_start', 'primary_score', 'primary_identity', 'primary_matches', 'primary_length',
           'secondary_barcode', 'secondary_is_start', 'secondary_score', 'secondary_identity', 'secondary_matches', 'secondary_length',
-          file = output_file, sep = '\t')
-    
+          file=output_file, sep=',')
+
     for index, read_file in enumerate(read_files):
-        process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity, threads)
+        process_read_file(read_file, output_file, barcodes, settings, barcode_counts, verbosity, threads)
 
-        output_progress_line(index, len(read_files))
+        if verbosity > 0:
+            output_progress_line(index, len(read_files))
 
-    output_progress_line(len(read_files), len(read_files))
+    if verbosity > 0:
+        output_progress_line(len(read_files), len(read_files))
 
     output_file.close()
 
@@ -149,13 +176,17 @@ def get_input_files(input_path):
     return input_files
 
 
-def process_read_file(read_file, output_file, barcodes, single_barcode, threshold, secondary_threshold, barcode_counts, verbosity, threads = 1):
+def process_read_file(read_file, output_file, barcodes, settings, barcode_counts, verbosity, threads = 1):
     """
     Iterates through the reads in an input files and bins or filters them into the
     output files as required.
     """
 
-    demux_func = partial(demux_read, barcodes = barcodes, single_barcode = single_barcode, threshold = threshold, secondary_threshold = secondary_threshold)
+    demux_func = partial(demux_read,
+                         barcodes = barcodes,
+                         single_barcode = settings['single_barcode'],
+                         threshold = settings['threshold'],
+                         secondary_threshold = settings['secondary_threshold'])
 
     results = []
 
@@ -178,7 +209,7 @@ def process_read_file(read_file, output_file, barcodes, single_barcode, threshol
         print(result['name'], result['call'],
               result['primary']['id'], result['primary']['start'], result['primary']['score'], result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
               result['secondary']['id'], result['secondary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
-              file = output_file, sep = '\t')
+              file=output_file, sep=',')
 
         if verbosity > 1:
             print_result(result)
@@ -197,7 +228,7 @@ def get_arguments():
     main_group.add_argument('-o', '--output', required=True,
                             help='Output filename (or filename prefix)')
     main_group.add_argument('-t', '--threads', type=int, default=2,
-                               help='The number of threads to use (1 to turn off multithreading)')
+                            help='The number of threads to use (1 to turn off multithreading)')
     main_group.add_argument('-v', '--verbosity', type=int, default=1,
                             help='Level of output information: 0 = none, 1 = some, 2 = lots')
 
@@ -214,10 +245,16 @@ def get_arguments():
                                help='Specify a list of barcodes to look for (numbers refer to native, PCR or rapid)')
     # barcode_group.add_argument('--custom_barcodes',
     #                            help='CSV file containing custom barcode sequences')
-    barcode_group.add_argument('--threshold', type=float, default=90.0,
-                               help='A read must have at least this percent identity to a barcode')
-    barcode_group.add_argument('--secondary_threshold', type=float, default=70.0,
-                               help='The second barcode must have at least this percent identity (and match the first one)')
+
+    barcode_search_group = parser.add_argument_group('Barcode search settings',
+                                                     'Settings for how to search for and call barcodes')
+    barcode_search_group.add_argument('--threshold', type=float, default=90.0,
+                                      help='A read must have at least this percent identity to a barcode')
+    barcode_search_group.add_argument('--secondary_threshold', type=float, default=70.0,
+                                      help='The second barcode must have at least this percent identity (and match the first one)')
+    barcode_search_group.add_argument('--scoring_scheme', type=str, default='3,-6,-5,-2',
+                                      help='Comma-delimited string of alignment scores: match, '
+                                           'mismatch, gap open, gap extend')
 
     help_args = parser.add_argument_group('Help')
     help_args.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
@@ -239,6 +276,14 @@ def get_arguments():
             args.secondary_threshold > 0.0 and args.secondary_threshold < 1.0):
         sys.exit(
             'Error: the options --threshold and --secondary_threshold should be given as percentages')
+
+    try:
+        scoring_scheme = [int(x) for x in args.scoring_scheme.split(',')]
+    except ValueError:
+        sys.exit('Error: incorrectly formatted scoring scheme')
+    if len(scoring_scheme) != 4:
+        sys.exit('Error: incorrectly formatted scoring scheme')
+    args.scoring_scheme_vals = scoring_scheme
 
     return args
 

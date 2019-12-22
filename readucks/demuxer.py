@@ -20,9 +20,18 @@ from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 
 DEBUG = False
 
-NUC_MATRIX = parasail.matrix_create("ACGT", 2, -1)
-GAP_OPEN = 10
-GAP_EXTEND = 1
+# these need to be globals as the c object in matrix cannot be passed to a thread pool function
+nuc_matrix = None
+gap_open = 10
+gap_extend = 1
+
+def set_alignment_settings(open, extend, matrix):
+    global gap_open, gap_extend, nuc_matrix
+
+    gap_open = open
+    gap_extend = extend
+    nuc_matrix = matrix
+
 
 def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
     '''
@@ -38,12 +47,12 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
     end_results = []
 
     for barcode_id in barcodes:
-        result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
-        result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+        result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
+        result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
 
         # if DEBUG:
-        #     result_start = get_all(barcode_id, query_start, barcodes[barcode_id]['start'], open, extend, matrix)
-        #     result_end = get_all(barcode_id, query_end, barcodes[barcode_id]['end'], open, extend, matrix)
+        #     result_start = get_all(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
+        #     result_end = get_all(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
 
         start_results.append(result_start)
         end_results.append(result_end)
@@ -58,11 +67,11 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
         #     print_alignment(start, end)
         # print("\n\n")
 
-    start_best = get_all(start_results[0]['id'], query_start, barcodes[start_results[0]['id']]['start'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
-    end_best = get_all(end_results[0]['id'], query_end, barcodes[end_results[0]['id']]['end'], GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+    start_best = get_all(start_results[0]['id'], query_start, barcodes[start_results[0]['id']]['start'], gap_open, gap_extend, nuc_matrix)
+    end_best = get_all(end_results[0]['id'], query_end, barcodes[end_results[0]['id']]['end'], gap_open, gap_extend, nuc_matrix)
 
-    # start_2nd_best = get_all(start_results[1]['id'], query_start, barcodes[start_results[1]['id']]['start'], open, extend, matrix)
-    # end_2nd_best = get_all(end_results[1]['id'], query_end, barcodes[end_results[1]['id']]['end'], open, extend, matrix)
+    # start_2nd_best = get_all(start_results[1]['id'], query_start, barcodes[start_results[1]['id']]['start'], open, extend, nuc_matrix)
+    # end_2nd_best = get_all(end_results[1]['id'], query_end, barcodes[end_results[1]['id']]['end'], open, extend, nuc_matrix)
 
     if DEBUG:
         print(read.name + ": ")
@@ -70,14 +79,14 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
         # print_alignment(start_2nd_best, end_2nd_best)
 
         start_barcode, _ = native_barcode_adapter(start_results[0]['id'])
-        sb1 = get_all(start_results[0]['id'], query_start, start_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+        sb1 = get_all(start_results[0]['id'], query_start, start_barcode, gap_open, gap_extend, nuc_matrix)
         _, end_barcode = native_barcode_adapter(end_results[0]['id'])
-        eb1 = get_all(end_results[0]['id'], query_end, end_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+        eb1 = get_all(end_results[0]['id'], query_end, end_barcode, gap_open, gap_extend, nuc_matrix)
 
         start_barcode, _ = native_barcode_adapter(start_results[1]['id'])
-        sb2 = get_all(start_results[1]['id'], query_start, start_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+        sb2 = get_all(start_results[1]['id'], query_start, start_barcode, gap_open, gap_extend, nuc_matrix)
         _, end_barcode = native_barcode_adapter(end_results[1]['id'])
-        eb2 = get_all(end_results[1]['id'], query_end, end_barcode, GAP_OPEN, GAP_EXTEND, NUC_MATRIX)
+        eb2 = get_all(end_results[1]['id'], query_end, end_barcode, gap_open, gap_extend, nuc_matrix)
         print_alignment(sb1, eb1)
         print_alignment(sb2, eb2)
 
