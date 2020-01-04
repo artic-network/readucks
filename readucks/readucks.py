@@ -40,14 +40,15 @@ def main():
     args = get_arguments()
 
     barcode_set = 'native'
-    if args.native_barcodes:
-        barcode_set = 'native'
+    # if args.native_barcodes:
+    #     barcode_set = 'native'
     if args.pcr_barcodes:
         barcode_set = 'pcr'
     if args.rapid_barcodes:
         barcode_set = 'rapid'
 
     settings = {
+        'barcode_set': "native",
         'single_barcode': args.single,
         'threshold': args.threshold / 100.0,
         'secondary_threshold': args.secondary_threshold / 100.0
@@ -59,10 +60,23 @@ def main():
     set_alignment_settings( -args.scoring_scheme_vals[2],
                             -args.scoring_scheme_vals[3],
                             parasail.matrix_create("ACGT", args.scoring_scheme_vals[0], args.scoring_scheme_vals[1]))
+    output_path = None
+    if args.output_dir:
+        if os.path.isdir(args.output_dir):
+            output_path = args.output_dir.rstrip("/") + "/"
 
-    process_files(args.input_path, args.output, barcode_set, args.limit_barcodes_to, settings, args.verbosity, args.threads)
+    output = {
+        'path': output_path,
+        'prefix': args.prefix,
+        'bin_barcodes': args.bin_barcodes,
+        'annotate_files': args.annotate_files,
+        'extended_info': args.extended_info,
+        'bin_files': {}
+    }
 
-def process_files(input_path, output_path, barcode_set, limit_barcodes_to, settings, verbosity, threads):
+    process_files(args.input_path, output, barcode_set, args.limit_barcodes_to, settings, args.verbosity, args.threads)
+
+def process_files(input_path, output, barcode_set, limit_barcodes_to, settings, verbosity, threads):
     """
     Core function to process one or more input files and create the required output files.
 
@@ -74,12 +88,10 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, setti
 
     read_files = get_input_files(input_path)
 
-    output_file = open(output_path, 'wt')
-
     if verbosity > 0:
         print(bold_underline('\n' + str(len(read_files)) + " read {} found".format('files' if len(read_files) > 1 else 'file')), flush=True)
 
-    if verbosity > 1:
+    # if verbosity > 1:
         for read_file in read_files:
             print(read_file, flush=True)
 
@@ -109,17 +121,16 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, setti
                 print(barcode, end = ' ')
             print()
 
+    output['file_type'] = get_output_file_type(read_files)
+
     if verbosity > 0:
         print(bold_underline("\nProcessing files"), flush=True)
         output_progress_line(0, len(read_files))
 
-    print('name', 'barcode',
-          'primary_barcode', 'primary_is_start', 'primary_score', 'primary_identity', 'primary_matches', 'primary_length',
-          'secondary_barcode', 'secondary_is_start', 'secondary_score', 'secondary_identity', 'secondary_matches', 'secondary_length',
-          file=output_file, sep=',')
 
     for index, read_file in enumerate(read_files):
-        process_read_file(read_file, output_file, barcodes, settings, barcode_counts, verbosity, threads)
+
+        process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads)
 
         if verbosity > 0:
             output_progress_line(index, len(read_files))
@@ -127,12 +138,19 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, setti
     if verbosity > 0:
         output_progress_line(len(read_files), len(read_files))
 
-    output_file.close()
-
     time = datetime.now() - start_time
 
     if verbosity > 0:
         print("\n\nTime taken: " + str(time.total_seconds()) + " secs")
+
+        if output['bin_barcodes']:
+            if verbosity > 0:
+                print(bold_underline("\nBinned reads by barcode"), flush=True)
+
+        for f in output['bin_files'].values():
+            if verbosity > 0:
+                print(f.name, flush=True)
+            f.close()
 
     if verbosity > 0:
         print(bold_underline('\nBarcodes called:'), flush=True)
@@ -144,7 +162,6 @@ def process_files(input_path, output_path, barcode_set, limit_barcodes_to, setti
 
         for barcode_name in barcode_names:
             print(barcode_name + ": " + str(barcode_counts[barcode_name]), flush=True)
-
 
 
 def get_input_files(input_path):
@@ -165,8 +182,9 @@ def get_input_files(input_path):
         input_files = sorted([os.path.join(dir_path, f)
                               for dir_path, _, filenames in os.walk(input_path)
                               for f in filenames
-                              if f.lower().endswith('.fastq') or f.lower().endswith('.fastq.gz') or
-                              f.lower().endswith('.fasta') or f.lower().endswith('.fasta.gz')])
+                              if f.lower().endswith('.fastq') or #f.lower().endswith('.fastq.gz') or
+                              f.lower().endswith('.fasta') # or f.lower().endswith('.fasta.gz')
+                              ])
         if not input_files:
             sys.exit('Error: could not find FASTQ/FASTA files in ' + input_path)
 
@@ -176,7 +194,23 @@ def get_input_files(input_path):
     return input_files
 
 
-def process_read_file(read_file, output_file, barcodes, settings, barcode_counts, verbosity, threads = 1):
+def get_output_file_type(read_files):
+    """
+    returns the output file type. This will be 'fastq' unless one of the
+    input files is a 'fasta'
+    :param read_files:
+    :return: the file type
+    """
+    file_type = 'fastq'
+
+    for read_file in read_files:
+        if read_file.lower().endswith('.fasta'):
+            file_type = 'fasta'
+
+    return file_type
+
+
+def process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads = 1):
     """
     Iterates through the reads in an input files and bins or filters them into the
     output files as required.
@@ -190,29 +224,87 @@ def process_read_file(read_file, output_file, barcodes, settings, barcode_counts
 
     results = []
 
-    if threads < 2: # if single threading then process as they are read (minimize memory requirements)
-        for read in SeqIO.parse(read_file, "fastq"):
+    file_type = 'fastq'
+    if read_file.lower().endswith('.fasta'):
+        file_type = 'fasta'
+
+    # read all the reads into memory - this is to allow multithreading.
+    # todo: To minimise memory usage it may be a worth implementing a streaming approach.
+    reads = []
+    for read in SeqIO.parse(read_file, file_type):
+        reads.append(read)
+
+    if threads == 1: # if single threading then don't use a thread pool
+        for read in reads:
             results.append(demux_func(read))
-
     else:
-        reads = []
-        for read in SeqIO.parse(read_file, "fastq"):
-            reads.append(read)
-
         with ThreadPool(threads) as pool:
             results = pool.map(demux_func, reads)
 
-    for result in results:
+    annotation_file = None
+    if (output['annotate_files']):
+        # strip extensions off
+        path_stem = read_file.rstrip(".gz") \
+            .rstrip(".fastq").rstrip(".fasta") \
+            .rstrip(".FASTQ").rstrip(".FASTA")
 
+        if output['path']:
+            name_stem = path_stem.split('/')[-1]
+            path_stem = output['path']
+            path_stem += output['prefix'] if output['prefix'] else ""
+            path_stem += name_stem
+
+        annotation_file = open(path_stem + ".csv", 'wt')
+        # if verbosity > 1:
+        #     print("\nWriting annotation file: " + annotation_file.name)
+
+        if output['extended_info']:
+            print('name', 'barcode',
+                  'primary_barcode', 'primary_is_start', 'primary_score', 'primary_identity', 'primary_matches', 'primary_length',
+                  'secondary_barcode', 'secondary_is_start', 'secondary_score', 'secondary_identity', 'secondary_matches', 'secondary_length',
+                  file=annotation_file, sep=',')
+        else:
+            print('name', 'barcode', file=annotation_file, sep=',')
+
+    # shouldn't be necessary
+    if len(results) != len(reads):
+        sys.exit("Error: results list a different length from input reads.")
+
+    # threadpool map function maintains the same order as the input data
+    for read, result in zip(reads, results):
         barcode_counts[result['call']] += 1
 
-        print(result['name'], result['call'],
-              result['primary']['id'], result['primary']['start'], result['primary']['score'], result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
-              result['secondary']['id'], result['secondary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
-              file=output_file, sep=',')
+        if annotation_file:
+            if output['extended_info']:
+                print(result['name'], result['call'],
+                      result['primary']['id'], result['primary']['start'], result['primary']['score'], result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
+                      result['secondary']['id'], result['secondary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
+                      file=annotation_file, sep=',')
+            else:
+                print(result['name'], result['call'], file=annotation_file, sep=',')
+
+        if output['bin_barcodes']:
+            bin_read(read, result, output)
 
         if verbosity > 1:
             print_result(result)
+
+    if annotation_file:
+        annotation_file.close()
+
+def bin_read(read, result, output):
+    """
+    Bins a read into the appropriate file (creating it if necessary).
+    """
+
+    if result['call'] not in output['bin_files']:
+        filename = output['path'] if output['path'] else ""
+        filename += output['prefix'] if output['prefix'] else ""
+
+        filename += result['call'] + "." + output['file_type']
+        output['bin_files'][result['call']] = open(filename, "wt")
+
+    SeqIO.write(read, output['bin_files'][result['call']], output['file_type'])
 
 def get_arguments():
     '''
@@ -225,8 +317,18 @@ def get_arguments():
     main_group.add_argument('-i', '--input', dest='input_path', required=True,
                             help='FASTQ of input reads or a directory which will be '
                                  'recursively searched for FASTQ files (required).')
-    main_group.add_argument('-o', '--output', required=True,
-                            help='Output filename (or filename prefix)')
+    main_group.add_argument('-o', '--output_dir',
+                            help='Output directory (default: working directory)')
+    main_group.add_argument('-b', '--bin_barcodes', action='store_true',
+                            help='Reads will be binned based on their barcode and saved to '
+                                 'separate files.')
+    main_group.add_argument('-a', '--annotate_files', action='store_true',
+                            help='Writes a CSV file for each input file containing barcode calls '
+                                 'for each read. ')
+    main_group.add_argument('-e', '--extended_info', action='store_true',
+                            help='Writes extended information about barcode calls. ')
+    main_group.add_argument('-p', '--prefix',
+                            help='Optional prefix to file names')
     main_group.add_argument('-t', '--threads', type=int, default=2,
                             help='The number of threads to use (1 to turn off multithreading)')
     main_group.add_argument('-v', '--verbosity', type=int, default=1,

@@ -18,6 +18,7 @@ import parasail
 
 from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 
+# flag to turn on printing extra debugging info
 DEBUG = False
 
 # these need to be globals as the c object in matrix cannot be passed to a thread pool function
@@ -126,7 +127,7 @@ def call_barcode(primary, secondary, single_barcode, threshold, secondary_thresh
     if primary['identity'] >= threshold and secondary['identity'] >= secondary_threshold and primary['id'] == secondary['id']:
         return primary['id']
 
-    return "none"
+    return 'unassigned'
 
 
 def print_result(result):
