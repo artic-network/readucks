@@ -1,6 +1,7 @@
 # readucks 
-<p align="center"><img src="images/readucks.png" alt="READUCKS" width="600"></p>
-Nanopore read de-multiplexer (read demux -> readux -> readucks, innit).
+<p align="center"><img src="images/readucks.png" alt="READUCKS" width="400"></p>
+
+#### Nanopore read de-multiplexer (read demux -> readux -> readucks, innit).
 
 This package is inspired by the demultiplexing options in [`porechop`](https://github.com/rrwick/Porechop) (by [Ryan Wick](https://github.com/rrwick)) but without the adapter trimming options - it just demuxes. It uses the [`parasail` library](https://github.com/jeffdaily/parasail) with its [Python bindings](https://github.com/jeffdaily/parasail-python) to do pairwise alignment which provides a considerable speed up over the [`seqan` library](https://github.com/seqan/seqan) used by `porechop` due to its low-level use of vector processor instructions.
 
