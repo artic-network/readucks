@@ -51,8 +51,11 @@ def main():
         'barcode_set': "native",
         'single_barcode': args.single,
         'threshold': args.threshold / 100.0,
-        'secondary_threshold': args.secondary_threshold / 100.0
+        'secondary_threshold': None
     }
+
+    if args.secondary_threshold:
+        settings['secondary_threshold'] = args.secondary_threshold / 100.0
 
     # set_alignment_settings( 10,
     #                         1,
@@ -371,13 +374,15 @@ def get_arguments():
             'Error: only one of the following options may be used: --native_barcodes, --pcr_barcodes or --rapid_barcodes')
 
     if (args.single and args.secondary_threshold):
-        sys.exit(
-            'Error: the option --secondary_threshold is not available with --single')
+        args.secondary_threshold = None
 
-    if (args.threshold > 0.0 and args.threshold < 1.0 or
-            args.secondary_threshold > 0.0 and args.secondary_threshold < 1.0):
+    if (args.threshold > 0.0 and args.threshold < 1.0):
         sys.exit(
-            'Error: the options --threshold and --secondary_threshold should be given as percentages')
+            'Error: the option --threshold should be given as a percentage')
+
+    if (args.secondary_threshold is not None and args.secondary_threshold > 0.0 and args.secondary_threshold < 1.0):
+        sys.exit(
+            'Error: the option --secondary_threshold should be given as a percentage')
 
     try:
         scoring_scheme = [int(x) for x in args.scoring_scheme.split(',')]
