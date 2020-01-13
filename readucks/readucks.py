@@ -394,8 +394,3 @@ def get_arguments():
 
     return args
 
-
-if __name__ == '__main__':
-    main()
-
-
