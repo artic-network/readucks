@@ -19,7 +19,7 @@ import os
 import sys
 from collections import defaultdict
 from datetime import datetime
-from multiprocessing import Pool as ThreadPool
+from multiprocessing.pool import ThreadPool
 from functools import partial
 
 from Bio import SeqIO
@@ -393,5 +393,9 @@ def get_arguments():
     args.scoring_scheme_vals = scoring_scheme
 
     return args
+
+
+if __name__ == '__main__':
+    main()
 
 
