@@ -51,7 +51,10 @@ def main():
         'barcode_set': "native",
         'single_barcode': args.single,
         'threshold': args.threshold / 100.0,
-        'secondary_threshold': None
+        'secondary_threshold': None,
+        'mode': args.mode,
+        'additional_info': args.summary_info,
+        'verbosity': args.verbosity
     }
 
     if args.secondary_threshold:
@@ -74,12 +77,13 @@ def main():
         'bin_barcodes': args.bin_barcodes,
         'annotate_files': args.annotate_files,
         'extended_info': args.extended_info,
+        'summary_info': args.summary_info,
         'bin_files': {}
     }
 
-    process_files(args.input_path, output, barcode_set, args.limit_barcodes_to, settings, args.verbosity, args.threads)
+    process_files(args.input_path, output, barcode_set, args.limit_barcodes_to, settings, args.verbosity, args.threads, args.num_reads_in_batch)
 
-def process_files(input_path, output, barcode_set, limit_barcodes_to, settings, verbosity, threads):
+def process_files(input_path, output, barcode_set, limit_barcodes_to, settings, verbosity, threads, batch_size):
     """
     Core function to process one or more input files and create the required output files.
 
@@ -133,7 +137,7 @@ def process_files(input_path, output, barcode_set, limit_barcodes_to, settings, 
 
     for index, read_file in enumerate(read_files):
 
-        process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads)
+        process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads, batch_size)
 
         if verbosity > 0:
             output_progress_line(index, len(read_files))
@@ -213,39 +217,44 @@ def get_output_file_type(read_files):
     return file_type
 
 
-def process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads = 1):
+def process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads = 1, batch_size = 200):
     """
     Iterates through the reads in an input files and bins or filters them into the
     output files as required.
     """
-
     demux_func = partial(demux_read,
                          barcodes = barcodes,
                          single_barcode = settings['single_barcode'],
                          threshold = settings['threshold'],
-                         secondary_threshold = settings['secondary_threshold'])
-
-    results = []
+                         secondary_threshold = settings['secondary_threshold'],
+                         mode = settings['mode'],
+                         additional_info = settings['additional_info'],
+                         verbosity = settings['verbosity'])
 
     file_type = 'fastq'
     if read_file.lower().endswith('.fasta'):
         file_type = 'fasta'
 
-    # read all the reads into memory - this is to allow multithreading.
-    # todo: To minimise memory usage it may be a worth implementing a streaming approach.
-    reads = []
-    for read in SeqIO.parse(read_file, file_type):
-        reads.append(read)
+    records = SeqIO.index(read_file, file_type)
+    read_names = list(records.keys())
+    n_reads = len(records)
 
-    if threads == 1: # if single threading then don't use a thread pool
-        for read in reads:
-            results.append(demux_func(read))
-    else:
-        with ThreadPool(threads) as pool:
-            results = pool.map(demux_func, reads)
+    results = []
+    for i in range(0, n_reads, batch_size):
+        reads = [records[r] for r in read_names[i:i + batch_size]]
+
+        if threads == 1: # if single threading then don't use a thread pool
+            for read in reads:
+                results.append(demux_func(read))
+        else:
+            with ThreadPool(threads) as pool:
+                results.extend(pool.map(demux_func, reads))
+
+    print("Reads length: ", n_reads, " and results length: ", len(results))
 
     annotation_file = None
-    if (output['annotate_files']):
+    summary_file = None
+    if output['annotate_files'] or output['summary_info']:
         # strip extensions off
         path_stem = read_file.rstrip(".gz") \
             .rstrip(".fastq").rstrip(".fasta") \
@@ -269,24 +278,47 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
         else:
             print('name', 'barcode', file=annotation_file, sep=',')
 
-    # shouldn't be necessary
-    if len(results) != len(reads):
-        sys.exit("Error: results list a different length from input reads.")
+        if output['summary_info']:
+            summary_file = open(path_stem + ".summary.csv", 'wt')
+            print('name', 'barcode',
+                  'primary_barcode', 'primary_is_start', 'primary_start_score', 'primary_start_identity',
+                  'primary_start_matches', 'primary_start_length', 'primary_end_score', 'primary_end_identity',
+                  'primary_end_matches', 'primary_end_length', 'secondary_barcode', 'secondary_is_start',
+                  'secondary_start_score', 'secondary_start_identity', 'secondary_start_matches',
+                  'secondary_start_length', 'secondary_end_score', 'secondary_end_identity',
+                  'secondary_end_matches', 'secondary_end_length',
+                  file=summary_file, sep=',')
 
     # threadpool map function maintains the same order as the input data
-    for read, result in zip(reads, results):
+    for result in results:
         barcode_counts[result['call']] += 1
 
         if annotation_file:
             if output['extended_info']:
                 print(result['name'], result['call'],
-                      result['primary']['id'], result['primary']['start'], result['primary']['score'], result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
-                      result['secondary']['id'], result['secondary']['start'], result['secondary']['score'], result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
+                      result['primary']['id'], result['primary']['start'], result['primary']['score'],
+                      result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
+                      result['secondary']['id'], result['secondary']['start'], result['secondary']['score'],
+                      result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
                       file=annotation_file, sep=',')
             else:
                 print(result['name'], result['call'], file=annotation_file, sep=',')
 
+        if output['summary_info']:
+            print(result['name'], result['call'],
+                  result['primary']['id'], result['primary']['start'], result['primary']['start_score'],
+                  result['primary']['start_identity'], result['primary']['start_matches'],
+                  result['primary']['start_length'], result['primary']['end_score'], result['primary']['end_identity'],
+                  result['primary']['end_matches'], result['primary']['end_length'],
+                  result['secondary']['id'], result['secondary']['start'], result['secondary']['start_score'],
+                  result['secondary']['start_identity'], result['secondary']['start_matches'],
+                  result['secondary']['start_length'], result['secondary']['end_score'],
+                  result['secondary']['end_identity'], result['secondary']['end_matches'],
+                  result['secondary']['end_length'],
+                  file=summary_file, sep=',')
+
         if output['bin_barcodes']:
+            read = records[result['name']]
             bin_read(read, result, output)
 
         if verbosity > 1:
@@ -294,6 +326,11 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
 
     if annotation_file:
         annotation_file.close()
+
+    if summary_file:
+        summary_file.close()
+
+    records.close()
 
 def bin_read(read, result, output):
     """
@@ -330,10 +367,16 @@ def get_arguments():
                                  'for each read. ')
     main_group.add_argument('-e', '--extended_info', action='store_true',
                             help='Writes extended information about barcode calls. ')
+    main_group.add_argument('-s', '--summary_info', action='store_true',
+                            help='Writes another file with information about barcode calls. ')
+    main_group.add_argument('-m', '--mode', default='precision',
+                            help='Demuxing mode, maximizing either ["precision","recall"].')
     main_group.add_argument('-p', '--prefix',
                             help='Optional prefix to file names')
     main_group.add_argument('-t', '--threads', type=int, default=2,
                             help='The number of threads to use (1 to turn off multithreading)')
+    main_group.add_argument('-n', '--num_reads_in_batch', type=int, default=200,
+                            help='The number of reads to process (and hold in memory) at a time')
     main_group.add_argument('-v', '--verbosity', type=int, default=1,
                             help='Level of output information: 0 = none, 1 = some, 2 = lots')
 

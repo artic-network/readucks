@@ -18,9 +18,6 @@ import parasail
 
 from .barcodes import NATIVE_BARCODES, PCR_BARCODES, RAPID_BARCODES
 
-# flag to turn on printing extra debugging info
-DEBUG = False
-
 # these need to be globals as the c object in matrix cannot be passed to a thread pool function
 nuc_matrix = None
 gap_open = 10
@@ -34,82 +31,60 @@ def set_alignment_settings(open, extend, matrix):
     nuc_matrix = matrix
 
 
-def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
+def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, mode, additional_info, verbosity):
     '''
     Processes a read to find barcodes and returns the results
     :param name: The name of the read
     :param read:  The sequence
     '''
-
     query_start = str(read.seq)[:100]
     query_end = str(read.seq)[-100:]
 
-    start_results = []
-    end_results = []
+    results = []
 
     for barcode_id in barcodes:
         result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
         result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
+        results.append(combine_results(result_start, result_end))
 
-        # if DEBUG:
-        #     result_start = get_all(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
-        #     result_end = get_all(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
+    results.sort(key=lambda k: (-k['start_score'], -k['end_score']))
+    start_best = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
+                         gap_extend, nuc_matrix)
+    if additional_info or mode == "recall":
+        start_best_end = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open,
+                                 gap_extend, nuc_matrix)
+        start_best = combine_results(start_best, start_best_end, start_best)
 
-        start_results.append(result_start)
-        end_results.append(result_end)
+    results.sort(key=lambda k: (-k['end_score'], -k['start_score']))
+    end_best = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open, gap_extend,
+                       nuc_matrix)
+    if additional_info or mode == "recall":
+        end_best_start = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
+                                 gap_extend, nuc_matrix)
+        end_best = combine_results(end_best_start, end_best, end_best)
 
-    start_results.sort(key=lambda k: -k['score'])
-    end_results.sort(key=lambda k: -k['score'])
-
-    # if DEBUG:
-        # print(read.name + ": ")
-        # for index, start in enumerate(start_results):
-        #     end = end_results[index]
-        #     print_alignment(start, end)
-        # print("\n\n")
-
-    start_best = get_all(start_results[0]['id'], query_start, barcodes[start_results[0]['id']]['start'], gap_open, gap_extend, nuc_matrix)
-    end_best = get_all(end_results[0]['id'], query_end, barcodes[end_results[0]['id']]['end'], gap_open, gap_extend, nuc_matrix)
-
-    # start_2nd_best = get_all(start_results[1]['id'], query_start, barcodes[start_results[1]['id']]['start'], open, extend, nuc_matrix)
-    # end_2nd_best = get_all(end_results[1]['id'], query_end, barcodes[end_results[1]['id']]['end'], open, extend, nuc_matrix)
-
-    if DEBUG:
-        print(read.name + ": ")
-        print_alignment(start_best, end_best)
-        # print_alignment(start_2nd_best, end_2nd_best)
-
-        start_barcode, _ = native_barcode_adapter(start_results[0]['id'])
-        sb1 = get_all(start_results[0]['id'], query_start, start_barcode, gap_open, gap_extend, nuc_matrix)
-        _, end_barcode = native_barcode_adapter(end_results[0]['id'])
-        eb1 = get_all(end_results[0]['id'], query_end, end_barcode, gap_open, gap_extend, nuc_matrix)
-
-        start_barcode, _ = native_barcode_adapter(start_results[1]['id'])
-        sb2 = get_all(start_results[1]['id'], query_start, start_barcode, gap_open, gap_extend, nuc_matrix)
-        _, end_barcode = native_barcode_adapter(end_results[1]['id'])
-        eb2 = get_all(end_results[1]['id'], query_end, end_barcode, gap_open, gap_extend, nuc_matrix)
-        print_alignment(sb1, eb1)
-        print_alignment(sb2, eb2)
-
-        print("\n\n")
-
+    #if verbosity > 2:
+    #    print(read.name + ": ")
+    #    print_alignment(start_best, end_best)
+    #    print("\n\n")
 
     if start_best['identity'] >= end_best['identity']:
         primary = start_best
-        # primary_2nd = start_2nd_best
         primary['start'] = 1
         secondary = end_best
-        # secondary_2nd = end_2nd_best
         secondary['start'] = 0
     else:
         primary = end_best
-        # primary_2nd = end_2nd_best
         primary['start'] = 0
         secondary = start_best
-        # secondary_2nd = start_2nd_best
         secondary['start'] = 1
 
-    call = call_barcode(primary, secondary, single_barcode, threshold, secondary_threshold)
+    if mode == 'recall':
+        primary['dominant'] = 1
+    else:
+        primary['dominant'] = 0
+
+    call = call_barcode(primary, secondary, single_barcode, threshold, secondary_threshold, mode, verbosity)
 
     return {
         'name': read.name,
@@ -118,21 +93,79 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold):
         'secondary': secondary
     }
 
-def call_barcode(primary, secondary, single_barcode, threshold, secondary_threshold):
+
+def combine_results(start_result, end_result, primary_result=None):
+    all_results = {}
+    if primary_result:
+        for key in primary_result:
+            all_results[key] = primary_result[key]
+
+    all_results['id'] = start_result['id']
+    for key in start_result:
+        all_results["start_%s" %key] = start_result[key]
+    for key in end_result:
+        all_results["end_%s" %key] = end_result[key]
+
+    return all_results
+
+def call_barcode_precision_mode(primary, secondary, threshold, secondary_threshold, verbosity):
+
+    if primary['identity'] >= threshold and secondary['identity'] >= secondary_threshold \
+            and primary['id'] == secondary['id']:
+        return primary['id']
+
+    elif verbosity > 2:
+        if primary['identity'] >= threshold and primary['start'] == 1 \
+            and primary['end_identity'] >= secondary_threshold:
+            return 'mismatched_barcode'
+        elif primary['identity'] >= threshold and primary['start'] == 0 \
+                and primary['start_identity'] >= secondary_threshold:
+            return 'mismatched_barcode'
+        elif primary['identity'] >= threshold:
+            return 'low_secondary_identity'
+        else:
+            return 'low_primary_identity'
+
+    return 'unassigned'
+
+def call_barcode_recall_mode(primary, secondary, threshold, secondary_threshold, verbosity):
+
+    if primary['start'] == 1 and primary['start_identity'] >= threshold and secondary['end_identity'] >= secondary_threshold:
+        return primary['id']
+    elif primary['start'] == 0 and primary['end_identity'] >= threshold and secondary['start_identity'] >= secondary_threshold:
+        return primary['id']
+
+    elif verbosity > 2:
+        if primary['start'] == 1 and primary['start_identity'] >= threshold:
+            return 'low_secondary_identity'
+        elif primary['start'] == 0 and primary['end_identity'] >= threshold:
+            return 'low_secondary_identity'
+        elif primary['start'] == 1 and primary['end_identity'] >= secondary_threshold:
+            return 'low_primary_identity'
+        elif primary['start'] == 0 and primary['end_identity'] >= secondary_threshold:
+            return 'low_primary_identity'
+
+    return 'unassigned'
+
+
+def call_barcode(primary, secondary, single_barcode, threshold, secondary_threshold, mode, verbosity):
 
     if single_barcode:
         if primary['identity'] >= threshold:
             return primary['id']
 
-    if primary['identity'] >= threshold and secondary['identity'] >= secondary_threshold and primary['id'] == secondary['id']:
-        return primary['id']
+    if mode == "precision":
+        return call_barcode_precision_mode(primary, secondary, threshold, secondary_threshold, verbosity)
+    elif mode == "recall":
+        return call_barcode_recall_mode(primary, secondary, threshold, secondary_threshold, verbosity)
 
     return 'unassigned'
 
 
 def print_result(result):
     start = result['primary'] if result['primary']['start'] == 1 else result['secondary']
-    end = result['secondary'] if result['secondary']['start'] == 0 else result['primary']
+    print(result['primary']['dominant'])
+    end = result['secondary'] if result['secondary']['start'] == 0 and result['primary']['dominant'] == 0 else result['primary']
 
     print(result['name'] + ": " + result['call'])
     print_alignment(start, end)
