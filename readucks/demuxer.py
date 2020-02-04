@@ -50,7 +50,7 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, m
     results.sort(key=lambda k: (-k['start_score'], -k['end_score']))
     start_best = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
                          gap_extend, nuc_matrix)
-    if additional_info or mode == "recall":
+    if additional_info or mode == "lenient":
         start_best_end = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open,
                                  gap_extend, nuc_matrix)
         start_best = combine_results(start_best, start_best_end, start_best)
@@ -58,7 +58,7 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, m
     results.sort(key=lambda k: (-k['end_score'], -k['start_score']))
     end_best = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open, gap_extend,
                        nuc_matrix)
-    if additional_info or mode == "recall":
+    if additional_info or mode == "lenient":
         end_best_start = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
                                  gap_extend, nuc_matrix)
         end_best = combine_results(end_best_start, end_best, end_best)
@@ -79,7 +79,7 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, m
         secondary = start_best
         secondary['start'] = 1
 
-    if mode == 'recall':
+    if mode == 'lenient':
         primary['dominant'] = 1
     else:
         primary['dominant'] = 0
@@ -108,7 +108,7 @@ def combine_results(start_result, end_result, primary_result=None):
 
     return all_results
 
-def call_barcode_precision_mode(primary, secondary, threshold, secondary_threshold, verbosity):
+def call_barcode_stringent_mode(primary, secondary, threshold, secondary_threshold, verbosity):
 
     if primary['identity'] >= threshold and secondary['identity'] >= secondary_threshold \
             and primary['id'] == secondary['id']:
@@ -128,7 +128,7 @@ def call_barcode_precision_mode(primary, secondary, threshold, secondary_thresho
 
     return 'unassigned'
 
-def call_barcode_recall_mode(primary, secondary, threshold, secondary_threshold, verbosity):
+def call_barcode_lenient_mode(primary, secondary, threshold, secondary_threshold, verbosity):
 
     if primary['start'] == 1 and primary['start_identity'] >= threshold and secondary['end_identity'] >= secondary_threshold:
         return primary['id']
@@ -154,10 +154,10 @@ def call_barcode(primary, secondary, single_barcode, threshold, secondary_thresh
         if primary['identity'] >= threshold:
             return primary['id']
 
-    if mode == "precision":
-        return call_barcode_precision_mode(primary, secondary, threshold, secondary_threshold, verbosity)
-    elif mode == "recall":
-        return call_barcode_recall_mode(primary, secondary, threshold, secondary_threshold, verbosity)
+    if mode == "stringent":
+        return call_barcode_stringent_mode(primary, secondary, threshold, secondary_threshold, verbosity)
+    elif mode == "lenient":
+        return call_barcode_lenient_mode(primary, secondary, threshold, secondary_threshold, verbosity)
 
     return 'unassigned'
 
