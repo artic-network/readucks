@@ -369,8 +369,8 @@ def get_arguments():
                             help='Writes extended information about barcode calls. ')
     main_group.add_argument('-s', '--summary_info', action='store_true',
                             help='Writes another file with information about barcode calls. ')
-    main_group.add_argument('-m', '--mode', default='precision',
-                            help='Demuxing mode, maximizing either ["precision","recall"].')
+    main_group.add_argument('-m', '--mode', default='stringent',
+                            help='Demuxing mode, maximizing either ["stringent","lenient"].')
     main_group.add_argument('-p', '--prefix',
                             help='Optional prefix to file names')
     main_group.add_argument('-t', '--threads', type=int, default=2,
