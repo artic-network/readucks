@@ -610,51 +610,63 @@ PCR_BARCODES = {
 RAPID_BARCODES = {
     'BC01': {
 		'name': "Rapid Barcode 1",
-        'start': "AAGAAAGTTGTCGGTGTCTTTGTG"
+        'start': "AAGAAAGTTGTCGGTGTCTTTGTG",
+        'end': None
     },
     'BC02': {
 		'name': "Rapid Barcode 2",
-        'start': "TCGATTCCGTTTGTAGTCGTCTGT"
+        'start': "TCGATTCCGTTTGTAGTCGTCTGT",
+        'end': None
     },
     'BC03': {
 		'name': "Rapid Barcode 3",
-        'start': "GAGTCTTGTGTCCCAGTTACCAGG"
+        'start': "GAGTCTTGTGTCCCAGTTACCAGG",
+        'end': None
     },
     'BC04': {
 		'name': "Rapid Barcode 4",
-        'start': "TTCGGATTCTATCGTGTTTCCCTA"
+        'start': "TTCGGATTCTATCGTGTTTCCCTA",
+        'end': None
     },
     'BC05': {
 		'name': "Rapid Barcode 5",
-        'start': "CTTGTCCAGGGTTTGTGTAACCTT"
+        'start': "CTTGTCCAGGGTTTGTGTAACCTT",
+        'end': None
     },
     'BC06': {
 		'name': "Rapid Barcode 6",
-        'start': "TTCTCGCAAAGGCAGAAAGTAGTC"
+        'start': "TTCTCGCAAAGGCAGAAAGTAGTC",
+        'end': None
     },
     'BC07': {
 		'name': "Rapid Barcode 7",
-        'start': "GTGTTACCGTGGGAATGAATCCTT"
+        'start': "GTGTTACCGTGGGAATGAATCCTT",
+        'end': None
     },
     'BC08': {
 		'name': "Rapid Barcode 8",
-        'start': "TTCAGGGAACAAACCAAGTTACGT"
+        'start': "TTCAGGGAACAAACCAAGTTACGT",
+        'end': None
     },
     'BC09': {
 		'name': "Rapid Barcode 9",
-        'start': "AACTAGGCACAGCGAGTCTTGGTT"
+        'start': "AACTAGGCACAGCGAGTCTTGGTT",
+        'end': None
     },
     'BC10': {
 		'name': "Rapid Barcode 10",
-        'start': "AAGCGTTGAAACCTTTGTCCTCTC"
+        'start': "AAGCGTTGAAACCTTTGTCCTCTC",
+        'end': None
     },
     'BC11': {
 		'name': "Rapid Barcode 11",
-        'start': "GTTTCATCTATCGGAGGGAATGGA"
+        'start': "GTTTCATCTATCGGAGGGAATGGA",
+        'end': None
     },
     'BC12': {
 		'name': "Rapid Barcode 12",
-        'start': "CAGGTAGAAAGAAGCAGAATCGGA"
+        'start': "CAGGTAGAAAGAAGCAGAATCGGA",
+        'end': None
     }
 }
 

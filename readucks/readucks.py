@@ -419,6 +419,9 @@ def get_arguments():
     if (args.single and args.secondary_threshold):
         args.secondary_threshold = None
 
+    if args.rapid_barcodes:
+        args.single = True
+
     if (args.threshold > 0.0 and args.threshold < 1.0):
         sys.exit(
             'Error: the option --threshold should be given as a percentage')
