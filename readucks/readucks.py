@@ -416,11 +416,15 @@ def get_arguments():
         sys.exit(
             'Error: only one of the following options may be used: --native_barcodes, --pcr_barcodes or --rapid_barcodes')
 
-    if (args.single and args.secondary_threshold):
-        args.secondary_threshold = None
-
     if args.rapid_barcodes:
         args.single = True
+        if verbosity > 0:
+            print('Using single barcode demultiplexing for rapid barcode kit')
+
+    if (args.single and args.secondary_threshold):
+        args.secondary_threshold = None
+        if verbosity > 0:
+            print('Secondary threshold ignored in single barcode demultiplexing mode')
 
     if (args.threshold > 0.0 and args.threshold < 1.0):
         sys.exit(
