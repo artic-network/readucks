@@ -185,6 +185,14 @@ def print_alignment(start, end):
 
 
 def get_score(id, query, reference, open, extend, matrix):
+    if reference is None:
+        result = {
+            'id': id,
+            'score': 0,
+        }
+
+        return result
+
     # score = parasail.sw_striped_8(query, reference, open, extend, matrix)
     score = parasail.sg_qx_striped_sat(query, reference, open, extend, matrix)
     result = {
@@ -198,6 +206,15 @@ def get_score(id, query, reference, open, extend, matrix):
 
 
 def get_stats(id, query, reference, open, extend, matrix):
+    if reference is None:
+        result = {
+            'id': id,
+            'matches': 0,
+            'length': 0,
+            'score': 0,
+            'identity': 0
+        }
+        return result
 
     # stats = parasail.sw_stats_striped_8(query, reference, open, extend, matrix)
     stats = parasail.sg_qx_stats_striped_sat(query, reference, open, extend, matrix)
@@ -216,6 +233,27 @@ def get_stats(id, query, reference, open, extend, matrix):
 
 
 def get_all(id, query, reference, open, extend, matrix):
+    if reference is None:
+        result = {
+            'id': id,
+            'matches': 0,
+            'score': 0,
+            'identity': 0,
+            'length': 0,
+            'mismatches': 0,
+            'similarity': 0,
+            'trace': {
+                'cigar': '',
+                'ref': '',
+                'comp': '',
+                'query': '',
+                'query_start': 0,
+                'query_end': 0,
+                'ref_start': 0,
+                'ref_end': 0
+            }
+        }
+        return result
 
     # stats = parasail.sw_stats(query, reference, open, extend, matrix)
     stats = parasail.sg_qx_stats_striped_sat(query, reference, open, extend, matrix)
