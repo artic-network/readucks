@@ -31,7 +31,7 @@ def set_alignment_settings(open, extend, matrix):
     nuc_matrix = matrix
 
 
-def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, mode, additional_info, verbosity):
+def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, score_diff, mode, additional_info, verbosity):
     '''
     Processes a read to find barcodes and returns the results
     :param name: The name of the read
@@ -43,25 +43,44 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, m
     results = []
 
     for barcode_id in barcodes:
-        result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
-        result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
+        if mode == 'porechop':
+            result_start = get_stats(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend,
+                                     nuc_matrix)
+            result_end = get_stats(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
+        else:
+            result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
+            result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
         results.append(combine_results(result_start, result_end))
 
-    results.sort(key=lambda k: (-k['start_score'], -k['end_score']))
+    if mode == 'porechop':
+        results.sort(key=lambda k: (-k['start_identity'], -k['end_identity']))
+    else:
+        results.sort(key=lambda k: (-k['start_score'], -k['end_score']))
     start_best = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
                          gap_extend, nuc_matrix)
+    start_second_best = None
     if additional_info or mode == "lenient":
         start_best_end = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open,
                                  gap_extend, nuc_matrix)
         start_best = combine_results(start_best, start_best_end, start_best)
+    if mode == 'porechop' and len(results) > 1:
+        start_second_best = get_all(results[1]['id'], query_start, barcodes[results[1]['id']]['start'], gap_open,
+                         gap_extend, nuc_matrix)
 
-    results.sort(key=lambda k: (-k['end_score'], -k['start_score']))
+    if mode == 'porechop':
+        results.sort(key=lambda k: (-k['end_identity'], -k['start_identity']))
+    else:
+        results.sort(key=lambda k: (-k['end_score'], -k['start_score']))
     end_best = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open, gap_extend,
                        nuc_matrix)
+    end_second_best = None
     if additional_info or mode == "lenient":
         end_best_start = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
                                  gap_extend, nuc_matrix)
         end_best = combine_results(end_best_start, end_best, end_best)
+    if mode == 'porechop' and len(results) > 1:
+        end_second_best = get_all(results[1]['id'], query_end, barcodes[results[1]['id']]['end'], gap_open,
+                         gap_extend, nuc_matrix)
 
     #if verbosity > 2:
     #    print(read.name + ": ")
@@ -71,20 +90,24 @@ def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, m
     if start_best['identity'] >= end_best['identity']:
         primary = start_best
         primary['start'] = 1
+        primary_second = start_second_best
         secondary = end_best
         secondary['start'] = 0
+        secondary_second = end_second_best
     else:
         primary = end_best
         primary['start'] = 0
+        primary_second = end_second_best
         secondary = start_best
         secondary['start'] = 1
+        secondary_second = start_second_best
 
     if mode == 'lenient':
         primary['dominant'] = 1
     else:
         primary['dominant'] = 0
 
-    call = call_barcode(primary, secondary, single_barcode, threshold, secondary_threshold, mode, verbosity)
+    call = call_barcode(primary, secondary, primary_second, secondary_second, single_barcode, threshold, secondary_threshold, score_diff, mode, verbosity)
 
     return {
         'name': read.name,
@@ -147,8 +170,50 @@ def call_barcode_lenient_mode(primary, secondary, threshold, secondary_threshold
 
     return 'unassigned'
 
+def call_barcode_porechop_mode(primary, secondary, primary_second, secondary_second, single_barcode, threshold, score_diff, verbosity):
 
-def call_barcode(primary, secondary, single_barcode, threshold, secondary_threshold, mode, verbosity):
+    primary_over_threshold = (primary['identity'] >= threshold)
+    primary_good_diff = (primary['identity'] > primary_second['identity'] + score_diff)
+    secondary_over_threshold = (secondary['identity'] >= threshold)
+    secondary_good_diff = (secondary['identity'] > secondary_second['identity'] + score_diff)
+    ids_match = (primary['id'] == secondary['id'])
+
+    print(primary['identity'], threshold, primary_over_threshold, primary_good_diff)
+    print(secondary_over_threshold, secondary_good_diff, ids_match)
+
+    if single_barcode:
+        if primary_over_threshold and primary_good_diff:
+            return primary['id']
+
+        elif verbosity > 2:
+            if not primary_over_threshold:
+                return 'low_primary_identity'
+            elif not primary_good_diff:
+                return 'bad_primary_diff'
+    else:
+        if ids_match and primary_over_threshold and primary_good_diff and secondary_over_threshold and secondary_good_diff:
+            return primary['id']
+
+        elif verbosity > 2:
+            if not ids_match:
+                return 'mismatched_barcode'
+            elif not primary_over_threshold:
+                return 'low_primary_identity'
+            elif not primary_good_diff:
+                return 'bad_primary_diff'
+            elif not secondary_over_threshold:
+                return 'low_secondary_identity'
+            elif not secondary_good_diff:
+                return 'bad_secondary_diff'
+
+    return 'unassigned'
+
+def call_barcode(primary, secondary, primary_second, secondary_second, single_barcode, threshold, secondary_threshold,
+                 score_diff, mode, verbosity):
+
+    if mode == 'porechop':
+        return call_barcode_porechop_mode(primary, secondary, primary_second, secondary_second, single_barcode,
+                                          threshold, score_diff, verbosity)
 
     if single_barcode:
         if primary['identity'] >= threshold:

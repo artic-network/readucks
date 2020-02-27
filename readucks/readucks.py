@@ -52,6 +52,7 @@ def main():
         'single_barcode': args.single,
         'threshold': args.threshold / 100.0,
         'secondary_threshold': None,
+        'score_diff': None,
         'mode': args.mode,
         'additional_info': args.summary_info,
         'verbosity': args.verbosity
@@ -59,6 +60,9 @@ def main():
 
     if args.secondary_threshold:
         settings['secondary_threshold'] = args.secondary_threshold / 100.0
+
+    if args.score_diff:
+        settings['score_diff'] = args.score_diff / 100.0
 
     # set_alignment_settings( 10,
     #                         1,
@@ -115,14 +119,16 @@ def get_barcode_list(barcode_set, limit_barcodes_to, verbosity):
 
     return barcode_list
 
-def filter_barcodes_by_counts(barcode_set, barcode_counts, verbosity, min_count=1, min_frac=0.001):
+def filter_barcodes_by_counts(barcode_set, barcode_counts, verbosity, min_count=2, min_frac=0.0025, min_ratio=0.015):
     subset_barcodes = []
     total = sum([barcode_counts[barcode] for barcode in barcode_counts])
+    max_count = max([barcode_counts[barcode] for barcode in barcode_counts])
 
     for barcode in barcode_counts:
         if barcode == 'unassigned':
             continue
-        if barcode_counts[barcode] > min_count and barcode_counts[barcode] > min_frac*total:
+        if barcode_counts[barcode] > min_count and barcode_counts[barcode] > min_frac*total \
+                and barcode_counts[barcode] > min_ratio*max_count:
             subset_barcodes.append(barcode)
     barcode_list = get_barcode_list(barcode_set, subset_barcodes, verbosity)
     return barcode_list
@@ -255,6 +261,7 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
                          single_barcode = settings['single_barcode'],
                          threshold = settings['threshold'],
                          secondary_threshold = settings['secondary_threshold'],
+                         score_diff = settings['score_diff'],
                          mode = settings['mode'],
                          additional_info = settings['additional_info'],
                          verbosity = settings['verbosity'])
@@ -398,7 +405,7 @@ def get_arguments():
     main_group.add_argument('-s', '--summary_info', action='store_true',
                             help='Writes another file with information about barcode calls. ')
     main_group.add_argument('-m', '--mode', default='stringent',
-                            help='Demuxing mode, maximizing either ["stringent","lenient"].')
+                            help='Demuxing mode, maximizing either ["stringent","lenient", "porechop"].')
     main_group.add_argument('-p', '--prefix',
                             help='Optional prefix to file names')
     main_group.add_argument('-t', '--threads', type=int, default=2,
@@ -430,6 +437,8 @@ def get_arguments():
                                       help='A read must have at least this percent identity to a barcode')
     barcode_search_group.add_argument('--secondary_threshold', type=float, default=70.0,
                                       help='The second barcode must have at least this percent identity (and match the first one)')
+    barcode_search_group.add_argument('--score_diff', type=int, default=5,
+                                      help='The second barcode must have at least this percent identity (and match the first one)')
     barcode_search_group.add_argument('--scoring_scheme', type=str, default='3,-6,-5,-2',
                                       help='Comma-delimited string of alignment scores: match, '
                                            'mismatch, gap open, gap extend')
@@ -455,6 +464,11 @@ def get_arguments():
         args.secondary_threshold = None
         if args.verbosity > 0:
             print('Secondary threshold ignored in single barcode demultiplexing mode')
+
+    if (args.mode == 'porechop' and args.secondary_threshold):
+        args.secondary_threshold = None
+        if args.verbosity > 0:
+            print('Secondary threshold ignored in porechop demultiplexing mode')
 
     if (args.threshold > 0.0 and args.threshold < 1.0):
         sys.exit(
