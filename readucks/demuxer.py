@@ -31,55 +31,56 @@ def set_alignment_settings(open, extend, matrix):
     nuc_matrix = matrix
 
 
-def demux_read(read, barcodes, single_barcode, threshold, secondary_threshold, score_diff, mode, additional_info, verbosity):
+def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary_threshold, score_diff, mode, additional_info, verbosity):
     '''
     Processes a read to find barcodes and returns the results
     :param name: The name of the read
     :param read:  The sequence
     '''
-    query_start = str(read.seq)[:100]
-    query_end = str(read.seq)[-100:]
+    query_start = str(read.seq)[:150]
+    query_end = str(read.seq)[-150:]
 
     results = []
 
     for barcode_id in barcodes:
+        start_adapter_seq = get_start_adapter_seq(barcode_id, barcode_set)
+        end_adapter_seq = get_end_adapter_seq(barcode_id, barcode_set)
+
         if mode == 'porechop':
-            result_start = get_stats(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend,
+            result_start = get_stats(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend,
                                      nuc_matrix)
-            result_end = get_stats(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
+            result_end = get_stats(barcode_id, query_end, end_adapter_seq, gap_open, gap_extend, nuc_matrix)
         else:
-            result_start = get_score(barcode_id, query_start, barcodes[barcode_id]['start'], gap_open, gap_extend, nuc_matrix)
-            result_end = get_score(barcode_id, query_end, barcodes[barcode_id]['end'], gap_open, gap_extend, nuc_matrix)
+            result_start = get_score(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend, nuc_matrix)
+            result_end = get_score(barcode_id, query_end, end_adapter_seq, gap_open, gap_extend, nuc_matrix)
         results.append(combine_results(result_start, result_end))
 
     if mode == 'porechop':
         results.sort(key=lambda k: (-k['start_identity'], -k['end_identity']))
     else:
         results.sort(key=lambda k: (-k['start_score'], -k['end_score']))
-    start_best = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
+    start_best = get_all(results[0]['id'], query_start, get_start_adapter_seq(results[0]['id'], barcode_set), gap_open,
                          gap_extend, nuc_matrix)
-    start_second_best = None
     if additional_info or mode == "lenient":
-        start_best_end = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open,
+        start_best_end = get_all(results[0]['id'], query_end, get_end_adapter_seq(results[0]['id'], barcode_set), gap_open,
                                  gap_extend, nuc_matrix)
         start_best = combine_results(start_best, start_best_end, start_best)
     if mode == 'porechop' and len(results) > 1:
-        start_second_best = get_all(results[1]['id'], query_start, barcodes[results[1]['id']]['start'], gap_open,
+        start_second_best = get_all(results[1]['id'], query_start, get_start_adapter_seq(results[1]['id'], barcode_set), gap_open,
                          gap_extend, nuc_matrix)
 
     if mode == 'porechop':
         results.sort(key=lambda k: (-k['end_identity'], -k['start_identity']))
     else:
         results.sort(key=lambda k: (-k['end_score'], -k['start_score']))
-    end_best = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open, gap_extend,
+    end_best = get_all(results[0]['id'], query_end, get_end_adapter_seq(results[0]['id'], barcode_set), gap_open, gap_extend,
                        nuc_matrix)
-    end_second_best = None
     if additional_info or mode == "lenient":
-        end_best_start = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
+        end_best_start = get_all(results[0]['id'], query_start, get_start_adapter_seq(results[0]['id'], barcode_set), gap_open,
                                  gap_extend, nuc_matrix)
         end_best = combine_results(end_best_start, end_best, end_best)
     if mode == 'porechop' and len(results) > 1:
-        end_second_best = get_all(results[1]['id'], query_end, barcodes[results[1]['id']]['end'], gap_open,
+        end_second_best = get_all(results[1]['id'], query_end, get_end_adapter_seq(results[1]['id'], barcode_set), gap_open,
                          gap_extend, nuc_matrix)
 
     #if verbosity > 2:
@@ -173,13 +174,10 @@ def call_barcode_lenient_mode(primary, secondary, threshold, secondary_threshold
 def call_barcode_porechop_mode(primary, secondary, primary_second, secondary_second, single_barcode, threshold, score_diff, verbosity):
 
     primary_over_threshold = (primary['identity'] >= threshold)
-    primary_good_diff = (primary['identity'] > primary_second['identity'] + score_diff)
+    primary_good_diff = (primary['identity'] >= primary_second['identity'] + score_diff)
     secondary_over_threshold = (secondary['identity'] >= threshold)
-    secondary_good_diff = (secondary['identity'] > secondary_second['identity'] + score_diff)
+    secondary_good_diff = (secondary['identity'] >= secondary_second['identity'] + score_diff)
     ids_match = (primary['id'] == secondary['id'])
-
-    print(primary['identity'], threshold, primary_over_threshold, primary_good_diff)
-    print(secondary_over_threshold, secondary_good_diff, ids_match)
 
     if single_barcode:
         if primary_over_threshold and primary_good_diff:
@@ -375,3 +373,29 @@ def rapid_barcode_adapter(barcode_id):
     start_full_seq = 'AATGTACTTCGTTCAGTTACGTATTGCT' + start_barcode_seq + rapid_adapter
 
     return start_full_seq
+
+def get_start_adapter_seq(barcode_id, barcode_set):
+    if barcode_set == 'native':
+        start_SQK_NSK007 = "AATGTACTTCGTTCAGTTACGTATTGCT"
+        start_barcode_seq = NATIVE_BARCODES[barcode_id]['start']
+        start_full_seq = start_SQK_NSK007 + "AAGGTTAA" + start_barcode_seq + "CAGCACCT"
+    elif barcode_set == 'rapid':
+        rapid_adapter = "GTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA"
+        start_barcode_seq = RAPID_BARCODES[barcode_id]['start']
+        start_full_seq = 'AATGTACTTCGTTCAGTTACGTATTGCT' + start_barcode_seq + rapid_adapter
+    elif barcode_set == 'pcr':
+        start_full_seq = PCR_BARCODES[barcode_id]['start']
+    else:
+        start_full_seq = None
+    return start_full_seq
+
+def get_end_adapter_seq(barcode_id, barcode_set):
+    if barcode_set == 'native':
+        end_SQK_NSK007 = "GCAATACGTAACTGAACGAAGT"
+        end_barcode_seq = NATIVE_BARCODES[barcode_id]['end']
+        end_full_seq = "AGGTGCTG" + end_barcode_seq + "TTAACCTTA" + end_SQK_NSK007
+    elif barcode_set == 'pcr':
+        end_full_seq = PCR_BARCODES[barcode_id]['end']
+    else:
+        end_full_seq = None
+    return end_full_seq

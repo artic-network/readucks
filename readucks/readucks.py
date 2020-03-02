@@ -48,7 +48,7 @@ def main():
         barcode_set = 'rapid'
 
     settings = {
-        'barcode_set': "native",
+        'barcode_set': barcode_set,
         'single_barcode': args.single,
         'threshold': args.threshold / 100.0,
         'secondary_threshold': None,
@@ -60,6 +60,9 @@ def main():
 
     if args.secondary_threshold:
         settings['secondary_threshold'] = args.secondary_threshold / 100.0
+
+    if args.adapter_threshold:
+        args.adapter_threshold = args.adapter_threshold / 100.0
 
     if args.score_diff:
         settings['score_diff'] = args.score_diff / 100.0
@@ -85,7 +88,7 @@ def main():
         'bin_files': {}
     }
 
-    process_files(args.input_path, output, barcode_set, args.limit_barcodes_to, args.barcode_count_filter_threshold, settings, args.verbosity, args.threads, args.num_reads_in_batch)
+    process_files(args.input_path, output, args.limit_barcodes_to, args.check_reads, args.adapter_threshold, settings, args.verbosity, args.threads, args.num_reads_in_batch)
 
 def get_barcode_list(barcode_set, limit_barcodes_to, verbosity):
     if barcode_set == 'native':
@@ -119,21 +122,41 @@ def get_barcode_list(barcode_set, limit_barcodes_to, verbosity):
 
     return barcode_list
 
-def filter_barcodes_by_counts(barcode_set, barcode_counts, verbosity, min_count=2, min_frac=0.0025, min_ratio=0.015):
+def filter_barcodes_by_counts(barcode_set, barcode_counts, high_identity_barcodes, verbosity, min_count=2, min_frac=0.0025, min_ratio=0.015):
     subset_barcodes = []
     total = sum([barcode_counts[barcode] for barcode in barcode_counts])
     max_count = max([barcode_counts[barcode] for barcode in barcode_counts])
 
-    for barcode in barcode_counts:
-        if barcode == 'unassigned':
+    for barcode in high_identity_barcodes:
+        if barcode == 'unassigned' or barcode not in barcode_counts:
             continue
-        if barcode_counts[barcode] > min_count and barcode_counts[barcode] > min_frac*total \
-                and barcode_counts[barcode] > min_ratio*max_count:
-            subset_barcodes.append(barcode)
+        #if barcode_counts[barcode] > min_count and barcode_counts[barcode] > min_frac*total \
+        #        and barcode_counts[barcode] > min_ratio*max_count:
+        subset_barcodes.append(barcode)
     barcode_list = get_barcode_list(barcode_set, subset_barcodes, verbosity)
     return barcode_list
 
-def process_files(input_path, output, barcode_set, limit_barcodes_to, barcode_count_filter_threshold, settings, verbosity, threads, batch_size):
+def run_check_reads(read_files, output, barcode_list, check_reads, adapter_threshold, settings, verbosity, threads, batch_size):
+    high_identity_barcodes = set()
+    barcode_counts = defaultdict(int)
+
+    if verbosity > 0:
+        print(bold_underline("\nProcessing files for barcodes"), flush=True)
+        output_progress_line(0, len(read_files))
+
+    for index, read_file in enumerate(read_files):
+
+        file_high_identity_barcodes = process_read_file(read_file, output, barcode_list, settings, barcode_counts,
+                                                        adapter_threshold, verbosity, threads, batch_size)
+        high_identity_barcodes.update(file_high_identity_barcodes)
+
+        total_counts = sum([barcode_counts[barcode] for barcode in barcode_counts])
+        if total_counts > check_reads:
+            barcode_list = filter_barcodes_by_counts(settings['barcode_set'], barcode_counts, high_identity_barcodes, verbosity)
+            break
+    return barcode_list
+
+def process_files(input_path, output, limit_barcodes_to, check_reads, adapter_threshold, settings, verbosity, threads, batch_size):
     """
     Core function to process one or more input files and create the required output files.
 
@@ -154,27 +177,23 @@ def process_files(input_path, output, barcode_set, limit_barcodes_to, barcode_co
 
     barcode_counts = defaultdict(int)
 
-    barcode_list = get_barcode_list(barcode_set, limit_barcodes_to, verbosity)
+    barcode_list = get_barcode_list(settings['barcode_set'], limit_barcodes_to, verbosity)
 
     output['file_type'] = get_output_file_type(read_files)
+
+    if check_reads:
+        barcode_list = run_check_reads(read_files, output, barcode_list, check_reads, adapter_threshold, settings, verbosity, threads, batch_size)
 
     if verbosity > 0:
         print(bold_underline("\nProcessing files"), flush=True)
         output_progress_line(0, len(read_files))
 
-
     for index, read_file in enumerate(read_files):
 
-        process_read_file(read_file, output, barcode_list, settings, barcode_counts, verbosity, threads, batch_size)
+        process_read_file(read_file, output, barcode_list, settings, barcode_counts, adapter_threshold, verbosity, threads, batch_size)
 
         if verbosity > 0:
             output_progress_line(index, len(read_files))
-
-        if barcode_count_filter_threshold:
-            total_counts = sum([barcode_counts[barcode] for barcode in barcode_counts])
-            if total_counts > barcode_count_filter_threshold:
-                barcode_list = filter_barcodes_by_counts(barcode_set, barcode_counts, verbosity)
-                filter_barcodes = False
 
     if verbosity > 0:
         output_progress_line(len(read_files), len(read_files))
@@ -251,13 +270,14 @@ def get_output_file_type(read_files):
     return file_type
 
 
-def process_read_file(read_file, output, barcodes, settings, barcode_counts, verbosity, threads = 1, batch_size = 200):
+def process_read_file(read_file, output, barcodes, settings, barcode_counts, adapter_threshold, verbosity, threads = 1, batch_size = 200):
     """
     Iterates through the reads in an input files and bins or filters them into the
     output files as required.
     """
     demux_func = partial(demux_read,
                          barcodes = barcodes,
+                         barcode_set = settings['barcode_set'],
                          single_barcode = settings['single_barcode'],
                          threshold = settings['threshold'],
                          secondary_threshold = settings['secondary_threshold'],
@@ -275,6 +295,7 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
     n_reads = len(records)
 
     results = []
+    high_identity_barcodes = set()
     for i in range(0, n_reads, batch_size):
         reads = [records[r] for r in read_names[i:i + batch_size]]
 
@@ -327,6 +348,9 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
     # threadpool map function maintains the same order as the input data
     for result in results:
         barcode_counts[result['call']] += 1
+        if result['primary']['identity'] >= adapter_threshold \
+                and result['primary']['score'] > 0:
+            high_identity_barcodes.add(result['primary']['id'])
 
         if annotation_file:
             if output['extended_info']:
@@ -366,6 +390,7 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
         summary_file.close()
 
     records.close()
+    return high_identity_barcodes
 
 def bin_read(read, result, output):
     """
@@ -412,8 +437,10 @@ def get_arguments():
                             help='The number of threads to use (1 to turn off multithreading)')
     main_group.add_argument('-n', '--num_reads_in_batch', type=int, default=200,
                             help='The number of reads to process (and hold in memory) at a time')
-    main_group.add_argument('--barcode_count_filter_threshold', type=int, required=False,
+    main_group.add_argument('--check_reads', type=int, required=False,
                             help='Number of barcodes to classify before filtering barcode set')
+    main_group.add_argument('--adapter_threshold', type=int, default=90,
+                            help='Identity required for a barcode to be included after filtering')
     main_group.add_argument('-v', '--verbosity', type=int, default=1,
                             help='Level of output information: 0 = none, 1 = some, 2 = lots')
 
