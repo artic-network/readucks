@@ -70,8 +70,8 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
     results = []
 
     for barcode_id in barcodes:
-        start_adapter_seq = get_start_adapter_seq(barcode_id, barcode_set)
-        end_adapter_seq = get_end_adapter_seq(barcode_id, barcode_set)
+        start_adapter_seq = barcodes[barcode_id]['start']
+        end_adapter_seq = barcodes[barcode_id]['end']
 
         if mode == 'porechop':
             result_start = get_identity(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend,
@@ -86,30 +86,30 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
         results.sort(key=lambda k: (-k['start_identity'], -k['end_identity']))
     else:
         results.sort(key=lambda k: (-k['start_score'], -k['end_score']))
-    start_best = get_all(results[0]['id'], query_start, get_start_adapter_seq(results[0]['id'], barcode_set), gap_open,
+    start_best = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
                          gap_extend, nuc_matrix)
     if additional_info or mode == "lenient":
-        start_best_end = get_all(results[0]['id'], query_end, get_end_adapter_seq(results[0]['id'], barcode_set), gap_open,
+        start_best_end = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open,
                                  gap_extend, nuc_matrix)
         start_best = combine_results(start_best, start_best_end, start_best)
     start_second_best = None
     if mode == 'porechop' and len(results) > 1:
-        start_second_best = get_all(results[1]['id'], query_start, get_start_adapter_seq(results[1]['id'], barcode_set), gap_open,
+        start_second_best = get_all(results[1]['id'], query_start, barcodes[results[1]['id']]['start'], gap_open,
                          gap_extend, nuc_matrix)
 
     if mode == 'porechop':
         results.sort(key=lambda k: (-k['end_identity'], -k['start_identity']))
     else:
         results.sort(key=lambda k: (-k['end_score'], -k['start_score']))
-    end_best = get_all(results[0]['id'], query_end, get_end_adapter_seq(results[0]['id'], barcode_set), gap_open, gap_extend,
+    end_best = get_all(results[0]['id'], query_end, barcodes[results[0]['id']]['end'], gap_open, gap_extend,
                        nuc_matrix)
     if additional_info or mode == "lenient":
-        end_best_start = get_all(results[0]['id'], query_start, get_start_adapter_seq(results[0]['id'], barcode_set), gap_open,
+        end_best_start = get_all(results[0]['id'], query_start, barcodes[results[0]['id']]['start'], gap_open,
                                  gap_extend, nuc_matrix)
         end_best = combine_results(end_best_start, end_best, end_best)
     end_second_best = None
     if mode == 'porechop' and len(results) > 1:
-        end_second_best = get_all(results[1]['id'], query_end, get_end_adapter_seq(results[1]['id'], barcode_set), gap_open,
+        end_second_best = get_all(results[1]['id'], query_end, barcodes[results[1]['id']]['end'], gap_open,
                          gap_extend, nuc_matrix)
 
     #if verbosity > 2:
