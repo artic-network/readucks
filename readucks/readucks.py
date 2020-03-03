@@ -49,7 +49,7 @@ def main():
 
     settings = {
         'barcode_set': barcode_set,
-        'single_barcode': args.single,
+        'single_barcode': not args.require_two_barcodes,
         'threshold': args.threshold / 100.0,
         'secondary_threshold': None,
         'score_diff': None,
@@ -442,15 +442,15 @@ def get_arguments():
                             help='Writes extended information about barcode calls. ')
     main_group.add_argument('-s', '--summary_info', action='store_true',
                             help='Writes another file with information about barcode calls. ')
-    main_group.add_argument('-m', '--mode', default='stringent',
-                            help='Demuxing mode, maximizing either ["stringent","lenient", "porechop"].')
+    main_group.add_argument('-m', '--mode', default='porechop',
+                            help='Demuxing mode, one of ["stringent","lenient", "porechop"].')
     main_group.add_argument('-p', '--prefix',
                             help='Optional prefix to file names')
     main_group.add_argument('-t', '--threads', type=int, default=2,
                             help='The number of threads to use (1 to turn off multithreading)')
     main_group.add_argument('-n', '--num_reads_in_batch', type=int, default=200,
                             help='The number of reads to process (and hold in memory) at a time')
-    main_group.add_argument('--check_reads', type=int, required=False,
+    main_group.add_argument('--check_reads', type=int, default=1000,
                             help='Number of barcodes to classify before filtering barcode set')
     main_group.add_argument('--adapter_threshold', type=int, default=90,
                             help='Identity required for a barcode to be included after filtering')
@@ -458,8 +458,8 @@ def get_arguments():
                             help='Level of output information: 0 = none, 1 = some, 2 = lots')
 
     barcode_group = parser.add_argument_group('Demuxing options')
-    barcode_group.add_argument('--single', action='store_true',
-                               help='Only attempts to match a single barcode at one end (default double)')
+    barcode_group.add_argument('--require_two_barcodes', action='store_true',
+                               help='Match barcodes at both ends of read (default single)')
     barcode_group.add_argument('--native_barcodes', action='store_true',
                                help='Only attempts to match the 24 native barcodes (default)')
     barcode_group.add_argument('--pcr_barcodes', action='store_true',
@@ -473,9 +473,9 @@ def get_arguments():
 
     barcode_search_group = parser.add_argument_group('Barcode search settings',
                                                      'Settings for how to search for and call barcodes')
-    barcode_search_group.add_argument('--threshold', type=float, default=90.0,
+    barcode_search_group.add_argument('--threshold', type=float, default=75,
                                       help='A read must have at least this percent identity to a barcode')
-    barcode_search_group.add_argument('--secondary_threshold', type=float, default=70.0,
+    barcode_search_group.add_argument('--secondary_threshold', type=float, default=65,
                                       help='The second barcode must have at least this percent identity (and match the first one)')
     barcode_search_group.add_argument('--score_diff', type=int, default=5,
                                       help='The second barcode must have at least this percent identity (and match the first one)')
@@ -496,11 +496,11 @@ def get_arguments():
             'Error: only one of the following options may be used: --native_barcodes, --pcr_barcodes or --rapid_barcodes')
 
     if args.rapid_barcodes:
-        args.single = True
+        args.require_two_barcodes = False
         if args.verbosity > 0:
             print('Using single barcode demultiplexing for rapid barcode kit')
 
-    if (args.single and args.secondary_threshold):
+    if (not args.require_two_barcodes and args.secondary_threshold):
         args.secondary_threshold = None
         if args.verbosity > 0:
             print('Secondary threshold ignored in single barcode demultiplexing mode')
