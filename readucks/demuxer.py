@@ -23,12 +23,39 @@ nuc_matrix = None
 gap_open = 10
 gap_extend = 1
 
+read_fragment_length = 100
+
 def set_alignment_settings(open, extend, matrix):
     global gap_open, gap_extend, nuc_matrix
 
     gap_open = open
     gap_extend = extend
     nuc_matrix = matrix
+
+def best_read_identity(reads, barcodes, barcode_set):
+    start_identities = {}
+    end_identities = {}
+
+    for barcode_id in barcodes:
+        start_identities[barcode_id] = 0
+        end_identities[barcode_id] = 0
+
+        # Look at alignment of just the barcode, not the extended adapter sequence
+        start_adapter_seq = barcodes[barcode_id]['start']
+        end_adapter_seq = barcodes[barcode_id]['end']
+
+        for read in reads:
+            query_start = str(read.seq)[:read_fragment_length]
+            result_start = get_all(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend, nuc_matrix)
+            if result_start['identity'] > start_identities[barcode_id]:
+                start_identities[barcode_id] = result_start['identity']
+
+            query_end = str(read.seq)[-read_fragment_length:]
+            result_end = get_all(barcode_id, query_end, end_adapter_seq, gap_open, gap_extend, nuc_matrix)
+            if result_end['identity'] > end_identities[barcode_id]:
+                end_identities[barcode_id] = result_end['identity']
+
+    return start_identities, end_identities
 
 
 def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary_threshold, score_diff, mode, additional_info, verbosity):
@@ -37,8 +64,8 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
     :param name: The name of the read
     :param read:  The sequence
     '''
-    query_start = str(read.seq)[:150]
-    query_end = str(read.seq)[-150:]
+    query_start = str(read.seq)[:read_fragment_length]
+    query_end = str(read.seq)[-read_fragment_length:]
 
     results = []
 
@@ -47,9 +74,9 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
         end_adapter_seq = get_end_adapter_seq(barcode_id, barcode_set)
 
         if mode == 'porechop':
-            result_start = get_stats(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend,
+            result_start = get_identity(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend,
                                      nuc_matrix)
-            result_end = get_stats(barcode_id, query_end, end_adapter_seq, gap_open, gap_extend, nuc_matrix)
+            result_end = get_identity(barcode_id, query_end, end_adapter_seq, gap_open, gap_extend, nuc_matrix)
         else:
             result_start = get_score(barcode_id, query_start, start_adapter_seq, gap_open, gap_extend, nuc_matrix)
             result_end = get_score(barcode_id, query_end, end_adapter_seq, gap_open, gap_extend, nuc_matrix)
@@ -65,6 +92,7 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
         start_best_end = get_all(results[0]['id'], query_end, get_end_adapter_seq(results[0]['id'], barcode_set), gap_open,
                                  gap_extend, nuc_matrix)
         start_best = combine_results(start_best, start_best_end, start_best)
+    start_second_best = None
     if mode == 'porechop' and len(results) > 1:
         start_second_best = get_all(results[1]['id'], query_start, get_start_adapter_seq(results[1]['id'], barcode_set), gap_open,
                          gap_extend, nuc_matrix)
@@ -79,6 +107,7 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
         end_best_start = get_all(results[0]['id'], query_start, get_start_adapter_seq(results[0]['id'], barcode_set), gap_open,
                                  gap_extend, nuc_matrix)
         end_best = combine_results(end_best_start, end_best, end_best)
+    end_second_best = None
     if mode == 'porechop' and len(results) > 1:
         end_second_best = get_all(results[1]['id'], query_end, get_end_adapter_seq(results[1]['id'], barcode_set), gap_open,
                          gap_extend, nuc_matrix)
@@ -174,9 +203,9 @@ def call_barcode_lenient_mode(primary, secondary, threshold, secondary_threshold
 def call_barcode_porechop_mode(primary, secondary, primary_second, secondary_second, single_barcode, threshold, score_diff, verbosity):
 
     primary_over_threshold = (primary['identity'] >= threshold)
-    primary_good_diff = (primary['identity'] >= primary_second['identity'] + score_diff)
+    primary_good_diff = (primary_second is None or primary['identity'] >= primary_second['identity'] + score_diff)
     secondary_over_threshold = (secondary['identity'] >= threshold)
-    secondary_good_diff = (secondary['identity'] >= secondary_second['identity'] + score_diff)
+    secondary_good_diff = (secondary_second is None or secondary['identity'] >= secondary_second['identity'] + score_diff)
     ids_match = (primary['id'] == secondary['id'])
 
     if single_barcode:
@@ -267,6 +296,28 @@ def get_score(id, query, reference, open, extend, matrix):
 
     return result
 
+def get_identity(id, query, reference, open, extend, matrix):
+    if reference is None:
+        result = {
+            'id': id,
+            'score': 0,
+            'identity': 0,
+        }
+
+        return result
+
+    stats = parasail.sg_qx_stats_striped_sat(query, reference, open, extend, matrix)
+
+    result = {
+        'id': id,
+        'score': stats.score,
+        'identity': stats.matches / stats.length
+    }
+
+    del stats
+
+    return result
+
 
 def get_stats(id, query, reference, open, extend, matrix):
     if reference is None:
@@ -285,9 +336,9 @@ def get_stats(id, query, reference, open, extend, matrix):
     result = {
         'id': id,
         'matches': stats.matches,
-        'length': stats.len_ref,
+        'length': stats.length,
         'score': stats.score,
-        'identity': stats.matches / stats.len_ref
+        'identity': stats.matches / stats.length
     }
 
     del stats
@@ -325,7 +376,8 @@ def get_all(id, query, reference, open, extend, matrix):
         'id': id,
         'matches': stats.matches,
         'score': stats.score,
-        'identity': stats.matches / stats.len_ref
+        'length': stats.length,
+        'identity': stats.matches / stats.length
     }
 
     del stats
@@ -335,7 +387,7 @@ def get_all(id, query, reference, open, extend, matrix):
     traceback = trace.get_traceback()
     cigar = trace.get_cigar()
 
-    result['length'] = len(traceback.comp)
+    #result['length'] = len(traceback.comp)
     result['mismatches'] = traceback.comp.count('.')
     result['similarity'] = result['matches'] / (result['matches'] + result['mismatches'])
 
