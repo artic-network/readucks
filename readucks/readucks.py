@@ -55,6 +55,7 @@ def main():
         'score_diff': None,
         'mode': args.mode,
         'additional_info': args.summary_info,
+        'report_alternate_call': args.report_alternate_call,
         'verbosity': args.verbosity
     }
 
@@ -302,6 +303,7 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
                          score_diff = settings['score_diff'],
                          mode = settings['mode'],
                          additional_info = settings['additional_info'],
+                         report_alternate_call = settings['report_alternate_call'],
                          verbosity = settings['verbosity'])
 
     file_type = 'fastq'
@@ -343,13 +345,17 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
         # if verbosity > 1:
         #     print("\nWriting annotation file: " + annotation_file.name)
 
+        fields = ['name', 'barcode']
+        if settings['report_alternate_call'] and settings['single_barcode']:
+            fields.append('double_barcode_call')
+        elif settings['report_alternate_call'] and not settings['single_barcode']:
+            fields.append('single_barcode_call')
         if output['extended_info']:
-            print('name', 'barcode',
-                  'primary_barcode', 'primary_is_start', 'primary_score', 'primary_identity', 'primary_matches', 'primary_length',
-                  'secondary_barcode', 'secondary_is_start', 'secondary_score', 'secondary_identity', 'secondary_matches', 'secondary_length',
-                  file=annotation_file, sep=',')
-        else:
-            print('name', 'barcode', file=annotation_file, sep=',')
+            fields.extend(['primary_barcode', 'primary_is_start', 'primary_score', 'primary_identity',
+                           'primary_matches', 'primary_length',
+                           'secondary_barcode', 'secondary_is_start', 'secondary_score', 'secondary_identity',
+                           'secondary_matches', 'secondary_length'])
+        print(','.join(fields), file=annotation_file)
 
         if output['summary_info']:
             summary_file = open(path_stem + ".summary.csv", 'wt')
@@ -367,15 +373,15 @@ def process_read_file(read_file, output, barcodes, settings, barcode_counts, ver
         barcode_counts[result['call']] += 1
 
         if annotation_file:
+            fields = [result['name'], result['call']]
+            if settings["report_alternate_call"]:
+                fields.append(result['alt_call'])
             if output['extended_info']:
-                print(result['name'], result['call'],
-                      result['primary']['id'], result['primary']['start'], result['primary']['score'],
+               fields.extend([result['primary']['id'], result['primary']['start'], result['primary']['score'],
                       result['primary']['identity'], result['primary']['matches'], result['primary']['length'],
                       result['secondary']['id'], result['secondary']['start'], result['secondary']['score'],
-                      result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length'],
-                      file=annotation_file, sep=',')
-            else:
-                print(result['name'], result['call'], file=annotation_file, sep=',')
+                      result['secondary']['identity'], result['secondary']['matches'], result['secondary']['length']])
+            print(','.join(fields), file=annotation_file)
 
         if output['summary_info']:
             print(result['name'], result['call'],
@@ -460,6 +466,8 @@ def get_arguments():
     barcode_group = parser.add_argument_group('Demuxing options')
     barcode_group.add_argument('--require_two_barcodes', action='store_true',
                                help='Match barcodes at both ends of read (default single)')
+    barcode_group.add_argument('--report_alternate_call', action='store_true',
+                               help='Reports double/single barcode call to csv in single/double barcoding mode')
     barcode_group.add_argument('--native_barcodes', action='store_true',
                                help='Only attempts to match the 24 native barcodes (default)')
     barcode_group.add_argument('--pcr_barcodes', action='store_true',
