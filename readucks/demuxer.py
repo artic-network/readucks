@@ -58,7 +58,7 @@ def best_read_identity(reads, barcodes, barcode_set):
     return start_identities, end_identities
 
 
-def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary_threshold, score_diff, mode, additional_info, verbosity):
+def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary_threshold, score_diff, mode, additional_info, report_alternate_call, verbosity):
     '''
     Processes a read to find barcodes and returns the results
     :param name: The name of the read
@@ -138,10 +138,15 @@ def demux_read(read, barcodes, barcode_set, single_barcode, threshold, secondary
         primary['dominant'] = 0
 
     call = call_barcode(primary, secondary, primary_second, secondary_second, single_barcode, threshold, secondary_threshold, score_diff, mode, verbosity)
+    alt_call = None
+    if report_alternate_call:
+        alt_call = call_barcode(primary, secondary, primary_second, secondary_second, not single_barcode, threshold, secondary_threshold, score_diff, mode, verbosity)
+
 
     return {
         'name': read.name,
         'call': call,
+        'alt_call': alt_call,
         'primary': primary,
         'secondary': secondary
     }
